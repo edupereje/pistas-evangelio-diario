@@ -1,0 +1,14 @@
+{
+  "name": "Pistas del Evangelio",
+  "short_name": "Pistas",
+  "description": "Para entender, rezar y llevar a la vida la Palabra de cada día.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fbf7ec",
+  "theme_color": "#d7b56d",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
