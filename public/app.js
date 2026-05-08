@@ -4,7 +4,7 @@ let selectedFecha = null;
 let deferredPrompt = null;
 
 const APP_URL = "https://pistas-evangelio-diario.netlify.app";
-const DONATION_URL = "https://www.donoamiiglesia.es/san/Home?st=&uri=nm%3Aoid%3AZ6_KP98H380OG7J40QGP8F2L01003";
+const DONATION_URL = "https://www.donoamiiglesia.es/san/Home?st=&uri=nm%3Aoid%3AZ6_KP98H380OG7J40QGP8F2L01003#!/donar/21acd17c-ed3e-e611-80e8-005056b101e1";
 const CONTACT_PHONE = "34662519044";
 const REMEMBER_STEPS = [
   "Pide el Espíritu Santo",
@@ -36,6 +36,16 @@ function isIOS() {
 
 function isAndroid() {
   return /android/i.test(navigator.userAgent);
+}
+
+function isSafariIOS() {
+  const ua = navigator.userAgent;
+  return isIOS() && /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+}
+
+function isLikelyInAppBrowser() {
+  const ua = navigator.userAgent;
+  return /FBAN|FBAV|Instagram|Line|WhatsApp|MicroMessenger|Messenger/i.test(ua);
 }
 
 function todayMadrid() {
@@ -138,10 +148,73 @@ async function installApp() {
 }
 
 function showInstallHelp() {
-  const msg = isIOS()
-    ? "En iPhone: abre este enlace en Safari, pulsa Compartir y elige ‘Añadir a pantalla de inicio’. Después abre la app desde el icono."
-    : "En Android: abre la app en Chrome y pulsa ‘Instalar app’ si aparece. Si no aparece, usa el menú del navegador y elige ‘Instalar aplicación’ o ‘Añadir a pantalla de inicio’.";
-  alert(msg);
+  const ios = isIOS();
+  const android = isAndroid();
+  const standalone = isStandalone();
+  const safari = isSafariIOS();
+  const inApp = isLikelyInAppBrowser();
+  const title = standalone ? "La app ya está instalada" : ios ? "Instalar en iPhone" : android ? "Instalar en Android" : "Instalar la app";
+
+  let body = "";
+  if (standalone) {
+    body = `<p>Ya estás usando la app desde el icono de la pantalla de inicio.</p>`;
+  } else if (ios) {
+    body = `
+      ${!safari || inApp ? `<div class="install-warning"><strong>Primer paso:</strong> abre este enlace en <strong>Safari</strong>. Si lo has abierto desde WhatsApp, toca el menú del navegador y elige “Abrir en Safari”, o copia el enlace y pégalo en Safari.</div>` : ""}
+      <ol class="install-steps">
+        <li><span>1</span><div><strong>Abre esta página en Safari.</strong><small>Las notificaciones en iPhone funcionan cuando la web-app está añadida a la pantalla de inicio.</small></div></li>
+        <li><span>2</span><div><strong>Pulsa el botón Compartir.</strong><small>Es el cuadrado con una flecha hacia arriba.</small></div></li>
+        <li><span>3</span><div><strong>Elige “Añadir a pantalla de inicio”.</strong><small>Puede estar más abajo en la lista de opciones.</small></div></li>
+        <li><span>4</span><div><strong>Pulsa “Añadir”.</strong><small>Después abre Pistas del Evangelio desde el icono nuevo.</small></div></li>
+      </ol>
+      <div class="button-row"><button class="button secondary" onclick="copyAppLink()">Copiar enlace</button><button class="button secondary" onclick="shareAppLink()">Compartir enlace</button></div>
+    `;
+  } else if (android) {
+    body = `
+      <ol class="install-steps">
+        <li><span>1</span><div><strong>Pulsa “Instalar app”.</strong><small>Si Chrome muestra el aviso nativo, acepta la instalación.</small></div></li>
+        <li><span>2</span><div><strong>Si no aparece, abre el menú de Chrome.</strong><small>Toca los tres puntos y elige “Instalar aplicación” o “Añadir a pantalla de inicio”.</small></div></li>
+        <li><span>3</span><div><strong>Abre desde el icono.</strong><small>Entonces podrás activar el aviso diario.</small></div></li>
+      </ol>
+      <button class="button" onclick="installApp()">Instalar app</button>
+    `;
+  } else {
+    body = `<p>Abre esta página desde el navegador del móvil y usa la opción “Añadir a pantalla de inicio” o “Instalar aplicación”.</p><button class="button secondary" onclick="copyAppLink()">Copiar enlace</button>`;
+  }
+
+  showModal(title, body);
+}
+
+function showModal(title, body) {
+  closeModal();
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="modal-backdrop" id="installModal" onclick="closeModal(event)">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle" onclick="event.stopPropagation()">
+        <button class="modal-close" onclick="closeModal()" aria-label="Cerrar">×</button>
+        <h2 id="modalTitle">${title}</h2>
+        <div class="modal-content">${body}</div>
+      </div>
+    </div>
+  `);
+}
+
+function closeModal(event) {
+  if (event && event.target && event.target.id !== "installModal") return;
+  const existing = document.getElementById("installModal");
+  if (existing) existing.remove();
+}
+
+async function copyAppLink() {
+  await navigator.clipboard.writeText(APP_URL);
+  alert("Enlace copiado. Ábrelo en Safari para instalar la app en iPhone.");
+}
+
+async function shareAppLink() {
+  if (navigator.share) {
+    await navigator.share({ title: "Pistas del Evangelio", text: "Instala esta app para rezar cada día con el Evangelio.", url: APP_URL });
+  } else {
+    await copyAppLink();
+  }
 }
 
 function dismissInstall() {
@@ -352,12 +425,21 @@ function renderHoy(p, state) {
 }
 
 function renderInstallCard() {
+  const ios = isIOS();
+  const android = isAndroid();
+  const headline = ios ? "Instala la app en iPhone" : android ? "Instala la app en Android" : "Instala la app";
+  const text = ios
+    ? "Para recibir el aviso diario en iPhone, añádela a la pantalla de inicio desde Safari. Te guiamos paso a paso."
+    : android
+      ? "Añádela a la pantalla de inicio para acceder rápido y activar el aviso diario."
+      : "Añádela a la pantalla de inicio para acceder rápido y activar el aviso diario.";
+  const primary = ios ? "Ver cómo instalar" : "Instalar en mi móvil";
   return `<div class="card notice">
-    <h2 class="section-title">Instala la app</h2>
-    <p class="muted">Añádela a la pantalla de inicio para acceder rápido y poder activar el aviso diario.</p>
+    <h2 class="section-title">${headline}</h2>
+    <p class="muted">${text}</p>
     <div class="button-row">
-      <button class="button soft" onclick="installApp()">Instalar en mi móvil</button>
-      <button class="button secondary" onclick="showInstallHelp()">Ver instrucciones</button>
+      <button class="button soft" onclick="${ios ? "showInstallHelp()" : "installApp()"}">${primary}</button>
+      <button class="button secondary" onclick="showInstallHelp()">Instrucciones</button>
     </div>
     <button class="link-button" onclick="dismissInstall()">Ahora no</button>
   </div>`;
@@ -424,7 +506,7 @@ function renderAjustes(state) {
   return `<section>
     <h1 class="h1">Ajustes</h1>
     <p class="muted">Instalación, notificaciones, ayuda y contacto.</p>
-    ${!isStandalone() ? `<div class="card"><h2 class="section-title">Instalar en el móvil</h2><p class="muted">Instala la app para recibir la notificación diaria y acceder más rápido.</p><div class="button-row"><button class="button soft" onclick="installApp()">Instalar app</button><button class="button secondary" onclick="showInstallHelp()">Ver instrucciones</button></div></div>` : ""}
+    ${!isStandalone() ? `<div class="card"><h2 class="section-title">Instalar en el móvil</h2><p class="muted">Instala la app para recibir la notificación diaria y acceder más rápido.</p><div class="button-row"><button class="button soft" onclick="${isIOS() ? "showInstallHelp()" : "installApp()"}">${isIOS() ? "Ver guía iPhone" : "Instalar app"}</button><button class="button secondary" onclick="showInstallHelp()">Instrucciones</button></div></div>` : ""}
     ${renderPrayerCard(true)}
     ${state.active ? `<div class="card"><h2 class="section-title">Notificaciones activadas</h2><p class="muted">Hora actual: <strong>${state.time || prayerTime()}</strong></p><button class="button secondary" onclick="deactivateNotifications()">Desactivar notificaciones</button></div>` : ""}
     ${renderHowToUseCard()}
@@ -509,6 +591,9 @@ window.openPista = openPista;
 window.installApp = installApp;
 window.showInstallHelp = showInstallHelp;
 window.dismissInstall = dismissInstall;
+window.closeModal = closeModal;
+window.copyAppLink = copyAppLink;
+window.shareAppLink = shareAppLink;
 window.activateNotifications = activateNotifications;
 window.deactivateNotifications = deactivateNotifications;
 window.sendLocalTestNotification = sendLocalTestNotification;
