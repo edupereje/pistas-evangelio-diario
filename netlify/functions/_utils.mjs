@@ -55,3 +55,10 @@ export function timeMatches(chosen, current) {
   const diff = n - c;
   return diff >= 0 && diff < 15;
 }
+
+export function env(name) {
+  try {
+    if (typeof Netlify !== "undefined" && Netlify.env?.get) return Netlify.env.get(name);
+  } catch (_) {}
+  return process.env[name];
+}

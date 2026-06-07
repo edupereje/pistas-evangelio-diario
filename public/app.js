@@ -6,6 +6,8 @@ let deferredPrompt = null;
 const APP_URL = "https://pistas-evangelio-diario.netlify.app";
 const DONATION_URL = "https://www.donoamiiglesia.es/san/Home?st=&uri=nm%3Aoid%3AZ6_KP98H380OG7J40QGP8F2L01003#!/donar/21acd17c-ed3e-e611-80e8-005056b101e1";
 const CONTACT_PHONE = "34662519044";
+const CONTENT_API_URL = "/api/pistas";
+const STATIC_FALLBACK_URL = "/data/pistas.json?v=8.5";
 const REMEMBER_STEPS = [
   "Pide el Espíritu Santo",
   "Lee despacio y entiende",
@@ -49,12 +51,15 @@ function isLikelyInAppBrowser() {
 }
 
 function todayMadrid() {
-  return new Intl.DateTimeFormat("en-CA", {
+  // Evita problemas entre navegadores: algunos no devuelven en-CA como YYYY-MM-DD.
+  const parts = new Intl.DateTimeFormat("es-ES", {
     timeZone: "Europe/Madrid",
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).format(new Date());
+  }).formatToParts(new Date());
+  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return `${map.year}-${map.month}-${map.day}`;
 }
 
 function isPastOrToday(fecha) {
@@ -73,7 +78,7 @@ function getTodayPista() {
   const requested = new URLSearchParams(location.search).get("fecha");
   const today = todayMadrid();
   if (requested && dayIsAvailable(requested)) return pistas.find((p) => p.fecha === requested);
-  return pistas.find((p) => p.fecha === today) || availablePistas().slice(-1)[0] || pistas[0];
+  return pistas.find((p) => p.fecha === today) || availablePistas().slice(-1)[0] || pistas[0] || null;
 }
 
 function getPista(fecha) {
@@ -123,17 +128,108 @@ function rememberText() {
   return REMEMBER_STEPS.map((step, index) => `${index + 1}. ${step}`).join("\n");
 }
 
+function cleanPistasTextForShare(pistas) {
+  const text = String(pistas || "").trim();
+  return text.replace(/\n?\s*\*?Relee el Evangelio, escucha lo que Dios te dice, respóndele con tu oración y llévalo a tu vida\.?\*?\s*$/i, "").trim();
+}
+
 function formatFullText(p) {
-  return `*${p.titulo}*\n*${p.celebracion}*\n\n(Recuerda:\n${rememberText()})\n\n*${p.evangelioTitulo}*\n${p.evangelio}\n\n*Pistas:* ${p.pistas}\n\nRelee el Evangelio, escucha lo que Dios te dice, respóndele con tu oración y llévalo a tu vida.`;
+  const pistasText = cleanPistasTextForShare(p.pistas);
+  return `*${p.titulo}*\n*${p.celebracion}*\n\n(Recuerda:  \n${rememberText()})\n\n*${p.evangelioTitulo}*\n${p.evangelio}\n\n*Pistas:* ${pistasText}\n\n*Relee el Evangelio, escucha lo que Dios te dice, respóndele con tu oración y llévalo a tu vida.*`;
+}
+
+function formatShareText(p, includeLink = false) {
+  const base = formatFullText(p);
+  return includeLink ? `${base}\n\nAbrir en la app:\n${dayUrl(p.fecha)}` : base;
 }
 
 async function init() {
+  renderLoading();
   if ("serviceWorker" in navigator) {
-    await navigator.serviceWorker.register("/sw.js");
+    await navigator.serviceWorker.register("/sw.js?v=8.5");
   }
-  pistas = await fetch("/data/pistas.json").then((r) => r.json());
-  selectedFecha = getTodayPista().fecha;
+
+  // Cargamos primero una copia local de respaldo para que la app nunca quede vacía
+  // si la función/API tarda, falla o devuelve una respuesta incompleta.
+  try {
+    pistas = await loadStaticFallback();
+  } catch (fallbackError) {
+    console.warn("No se pudo cargar contenido local de respaldo", fallbackError);
+    pistas = [];
+  }
+
+  // Después intentamos actualizar desde Google Sheets a través de Netlify Functions.
+  try {
+    const remotePistas = await loadPistasFromApi();
+    if (Array.isArray(remotePistas) && remotePistas.length > 0) {
+      pistas = remotePistas;
+    } else {
+      console.warn("La API no devolvió Pistas; se mantiene el respaldo local.");
+    }
+  } catch (error) {
+    console.warn("No se pudo cargar el contenido desde Google Sheets; se mantiene respaldo local", error);
+  }
+
+  if (!Array.isArray(pistas) || pistas.length === 0) {
+    renderError("No se pudo cargar el contenido. Comprueba la conexión y vuelve a intentarlo.");
+    return;
+  }
+
+  const params = new URLSearchParams(location.search);
+  const requestedFecha = params.get("fecha");
+  const requestedRead = params.get("leer") === "1" || params.get("view") === "lectura";
+  if (requestedFecha && dayIsAvailable(requestedFecha)) {
+    selectedFecha = requestedFecha;
+    if (requestedRead || params.has("fecha")) currentTab = "lectura";
+  } else {
+    selectedFecha = getTodayPista()?.fecha;
+  }
   render();
+}
+
+async function loadStaticFallback() {
+  const response = await fetch(STATIC_FALLBACK_URL, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Error fallback HTTP ${response.status}`);
+  const data = await response.json();
+  const items = Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : []);
+  if (!items.length) throw new Error("El respaldo local no contiene Pistas.");
+  return items.map(normalizePista).sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+
+async function loadPistasFromApi() {
+  const response = await fetch(`${CONTENT_API_URL}?force=1&t=${Date.now()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Error HTTP ${response.status}`);
+  const data = await response.json();
+  if (!data.ok || !Array.isArray(data.items)) throw new Error(data.error || "Respuesta de contenido no válida");
+  const items = data.items.map(normalizePista).filter((item) => item.fecha).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  if (!items.length) throw new Error("La API respondió correctamente, pero no devolvió ninguna Pista.");
+  return items;
+}
+
+
+function hasStartingContent(p) {
+  return Boolean(p && p.estoyEmpezando && p.estoyEmpezando.trim().length > 0);
+}
+
+function hasImage(p) {
+  return Boolean(p && p.imagenDiaUrl && /^https?:\/\//i.test(p.imagenDiaUrl.trim()));
+}
+
+function normalizePista(item) {
+  const fields = ["fecha", "publicar", "titulo", "celebracion", "cita", "evangelioTitulo", "evangelio", "pistas", "estoyEmpezando", "fraseDestacada", "imagenDiaUrl", "audioUrl", "notificacionTitulo", "notificacionTexto", "notasInternas"];
+  const normalized = {};
+  fields.forEach((field) => normalized[field] = String(item?.[field] || "").trim());
+  return normalized;
+}
+
+function renderLoading() {
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="app"><header class="header"><div class="logo"><img src="/icons/icon-192.png" alt=""></div><div><div class="title">Pistas del Evangelio</div><div class="subtitle">Cargando contenido...</div></div></header><main class="main"><div class="card hero"><div class="eyebrow">Un momento</div><h1 class="h1">Preparando la Pista de hoy</h1><p class="muted">Estamos cargando el Evangelio y las Pistas desde la hoja de contenidos.</p></div></main></div>`;
+}
+
+function renderError(message) {
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="app"><header class="header"><div class="logo"><img src="/icons/icon-192.png" alt=""></div><div><div class="title">Pistas del Evangelio</div><div class="subtitle">No se pudo cargar</div></div></header><main class="main"><div class="card"><h1 class="h1">Contenido no disponible</h1><p class="muted">${escapeHtml(message)}</p><button class="button" onclick="location.reload()">Reintentar</button></div></main></div>`;
 }
 
 async function installApp() {
@@ -334,20 +430,21 @@ async function sendLocalTestNotification() {
   }
 }
 
-async function shareText(title, text, url) {
+async function shareText(title, text, url = "") {
+  const payload = url ? { title, text, url } : { title, text };
   if (navigator.share) {
-    await navigator.share({ title, text, url });
+    await navigator.share(payload);
   } else {
-    await navigator.clipboard.writeText(`${text}\n${url}`);
-    alert("Copiado al portapapeles.");
+    await navigator.clipboard.writeText(url ? `${text}\n${url}` : text);
+    alert("Texto copiado al portapapeles.");
   }
 }
 
 async function sharePista(p) {
   await shareText(
     `Pistas del Evangelio — ${p.titulo}`,
-    `${p.titulo}\n${p.celebracion}\n${p.cita}\n\nLee la Pista del día en la app.`,
-    dayUrl(p.fecha)
+    formatShareText(p, true),
+    ""
   );
 }
 
@@ -365,7 +462,19 @@ async function copyPista(p) {
 }
 
 function whatsappPista(p) {
-  return `https://wa.me/?text=${encodeURIComponent(`${p.titulo}\n${p.celebracion}\n${p.cita}\n\nLee la Pista del Evangelio aquí:\n${dayUrl(p.fecha)}`)}`;
+  return `https://wa.me/?text=${encodeURIComponent(formatShareText(p, true))}`;
+}
+
+async function shareWhatsappPista(p) {
+  const text = formatShareText(p, true);
+  // En móviles, el selector nativo evita problemas de límite de longitud de URL
+  // y permite escoger WhatsApp conservando el texto completo con formato.
+  if (navigator.share) {
+    await navigator.share({ title: `Pistas del Evangelio — ${p.titulo}`, text });
+    return;
+  }
+  await navigator.clipboard.writeText(text);
+  window.open(whatsappPista(p), "_blank", "noopener,noreferrer");
 }
 
 function contactWhatsapp(p) {
@@ -378,9 +487,20 @@ function contactMail(p) {
   return `mailto:?subject=${subject}&body=${body}`;
 }
 
+function extractHighlight(p) {
+  const source = `${p.evangelio}\n${p.pistas}`;
+  const quoted = source.match(/[«“\"]([^»”\"]{8,70})[»”\"]/);
+  if (quoted && quoted[1]) return `“${quoted[1].trim()}”`;
+  return p.cita;
+}
+
 function render() {
   const app = document.getElementById("app");
   const today = getTodayPista();
+  if (!today) {
+    renderError("Todavía no hay ninguna Pista publicada en la hoja de contenidos.");
+    return;
+  }
   const state = notificationState();
   app.innerHTML = `<div class="app">
     <header class="header">
@@ -404,15 +524,20 @@ function renderHoy(p, state) {
   const installDismissed = localStorage.getItem("pistasInstallDismissed") === "true";
   const showInstall = !installed && !installDismissed;
   const showPrayer = installed && !state.active;
+  const highlight = extractHighlight(p);
+  const today = todayMadrid();
+  const exactToday = p.fecha === today;
 
   return `<section>
     ${showInstall ? renderInstallCard() : ""}
     <div class="card hero">
-      <div class="eyebrow">📅 Pista de hoy</div>
+      <div class="eyebrow">${exactToday ? "Pista de hoy" : "Última Pista publicada"}</div>
+      ${!exactToday ? `<div class="source-note">Hoy es ${today}. Todavía no hay una Pista publicada para esa fecha; mostramos la última disponible.</div>` : ""}
       <h1 class="h1">${p.titulo}</h1>
+      <div class="quote">${escapeHtml(highlight)}</div>
       <div class="muted">${p.celebracion}</div>
       <div class="pill">${p.cita}</div>
-      <button class="button" style="margin-top:16px" onclick="openPista('${p.fecha}')">Leer la Pista de hoy</button>
+      <a class="button" style="margin-top:16px" href="?fecha=${p.fecha}&leer=1" onclick="event.preventDefault(); openPista('${p.fecha}')">Leer la Pista de hoy</a>
     </div>
     ${showPrayer ? renderPrayerCard(false) : state.active ? renderPrayerSummary(state) : ""}
     <div class="button-row">
@@ -447,7 +572,7 @@ function renderInstallCard() {
 
 function renderPrayerSummary(state) {
   return `<div class="card">
-    <div class="eyebrow">🔔 Tiempo de oración programado</div>
+    <div class="eyebrow">Tiempo de oración programado</div>
     <p class="muted">Recibirás el aviso diario a las <strong>${state.time || prayerTime()}</strong>. Puedes cambiarlo o desactivarlo en Ajustes.</p>
     <button class="button secondary" onclick="setTab('ajustes')">Cambiar en Ajustes</button>
   </div>`;
@@ -457,7 +582,7 @@ function renderPrayerCard(inSettings) {
   const t = prayerTime();
   const times = ["07:00", "08:00", "09:00", "21:00"];
   return `<div class="card">
-    <div class="eyebrow">🔔 Programa tu tiempo de oración</div>
+    <div class="eyebrow">Programa tu tiempo de oración</div>
     <p class="muted">Es importante reservar un momento concreto para escuchar la Palabra de Dios. Elige a qué hora quieres recibir cada día una llamada sencilla para rezar con el Evangelio.</p>
     <div class="time-grid">${times.map((x) => `<button class="${t === x ? "active" : ""}" onclick="chooseTime('${x}')">${x}</button>`).join("")}</div>
     <label class="label" for="timeInput">Elegir otra hora</label>
@@ -469,26 +594,43 @@ function renderPrayerCard(inSettings) {
 }
 
 function renderLectura(p) {
+  const starting = hasStartingContent(p);
+  const image = hasImage(p);
   return `<article>
     <button class="button secondary back" onclick="goHome()">← Volver</button>
     <div class="card hero" style="margin-top:14px">
       <h1 class="h1">${p.titulo}</h1>
+      <div class="quote">${escapeHtml(extractHighlight(p))}</div>
       <div class="muted">${p.celebracion}</div>
       <div class="pill">${p.cita}</div>
     </div>
     ${renderRememberCard(true)}
     <section class="card"><h2 class="section-title">${p.evangelioTitulo}</h2><div class="text">${escapeHtml(p.evangelio)}</div></section>
-    <section class="card pistas-card"><h2 class="section-title">Pistas</h2><div class="text">${escapeHtml(p.pistas)}</div></section>
+    ${starting ? renderContentSwitcher(p) : `<section class="card pistas-card"><h2 class="section-title">Pistas</h2><div class="text">${escapeHtml(p.pistas)}</div></section>`}
+    ${image ? `<div class="card image-card"><h2 class="section-title">Imagen del día</h2><p class="muted">Una síntesis visual para recordar y compartir la Palabra de hoy.</p><button class="button soft" onclick="showDailyImage('${p.fecha}')">Ver imagen del día</button></div>` : ""}
     <div class="card closing">Relee el Evangelio, escucha lo que Dios te dice, respóndele con tu oración y llévalo a tu vida.</div>
-    <div class="card"><h2 class="section-title">Compartir o guardar</h2><div class="button-row"><button class="button" onclick="sharePistaByDate('${p.fecha}')">Compartir</button><button class="button secondary" onclick="copyPistaByDate('${p.fecha}')">Copiar</button></div><a class="button secondary" style="margin-top:10px" href="${whatsappPista(p)}" target="_blank" rel="noreferrer">Compartir por WhatsApp</a></div>
+    <div class="card"><h2 class="section-title">Compartir o guardar</h2><div class="button-row"><button class="button" onclick="sharePistaByDate('${p.fecha}')">Compartir</button><button class="button secondary" onclick="copyPistaByDate('${p.fecha}')">Copiar</button></div><button class="button secondary" style="margin-top:10px" onclick="shareWhatsappPistaByDate('${p.fecha}')">Compartir por WhatsApp</button></div>
     <div class="card"><h2 class="section-title">Comentar o preguntar</h2><p class="muted">Si esta Pista te ha suscitado alguna pregunta o quieres compartir algo, puedes escribir directamente.</p><div class="button-row"><a class="button" href="${contactWhatsapp(p)}" target="_blank" rel="noreferrer">WhatsApp</a><a class="button secondary" href="${contactMail(p)}">Correo</a></div></div>
     ${renderDonateCard()}
   </article>`;
 }
 
+function renderContentSwitcher(p) {
+  const mode = localStorage.getItem("pistasReadMode") || "pistas";
+  const showStarting = mode === "empezando" && hasStartingContent(p);
+  return `<section class="card pistas-card">
+    <div class="segmented" role="tablist" aria-label="Modo de lectura">
+      <button class="${!showStarting ? "active" : ""}" onclick="setReadMode('pistas')">Pistas</button>
+      <button class="${showStarting ? "active" : ""}" onclick="setReadMode('empezando')">Estoy empezando</button>
+    </div>
+    <h2 class="section-title">${showStarting ? "Estoy empezando" : "Pistas"}</h2>
+    <div class="text">${escapeHtml(showStarting ? p.estoyEmpezando : p.pistas)}</div>
+  </section>`;
+}
+
 function renderRememberCard(compact = false) {
   return `<section class="card remember-card">
-    <div class="eyebrow">✨ Recuerda</div>
+    <div class="eyebrow">Recuerda</div>
     <ol class="remember-list">${REMEMBER_STEPS.map((step) => `<li>${step}</li>`).join("")}</ol>
     ${compact ? "" : `<p class="muted">Estas Pistas están inspiradas en el camino de la lectio divina: leer la Palabra, comprenderla, escuchar lo que Dios quiere decirte, responder con la oración y llevarlo a la vida.</p>`}
   </section>`;
@@ -498,7 +640,7 @@ function renderArchivo() {
   return `<section>
     <h1 class="h1">Archivo</h1>
     <p class="muted">Pistas anteriores disponibles para volver a rezar con ellas.</p>
-    <div class="list">${availablePistas().slice().reverse().map((p) => `<button class="archive-item" onclick="openPista('${p.fecha}')"><strong>${p.titulo}</strong><span class="muted">${p.celebracion}</span><br><span class="pill">${p.cita}</span></button>`).join("")}</div>
+    <div class="list">${availablePistas().slice().reverse().map((p) => `<a class="archive-item" href="?fecha=${p.fecha}&leer=1" onclick="event.preventDefault(); openPista('${p.fecha}')"><strong>${p.titulo}</strong><span class="muted">${p.celebracion}</span><br><span class="pill">${p.cita}</span></a>`).join("")}</div>
   </section>`;
 }
 
@@ -519,7 +661,17 @@ function renderAjustes(state) {
 }
 
 function renderHowToUseCard() {
-  return `<div class="card"><h2 class="section-title">Cómo usar estas Pistas</h2><p class="muted">Estas Pistas están inspiradas en el camino de la lectio divina. No se trata solo de leer un comentario, sino de entrar en diálogo con Dios a través del Evangelio.</p>${renderRememberCard(false)}</div>`;
+  return `<div class="card"><h2 class="section-title">Cómo rezar con la Palabra</h2>
+    <p class="muted">La lectio divina no es un simple estudio de la Biblia. Es un encuentro personal con Dios a través de su Palabra. No se trata de “terminar el texto”, sino de dejar que la Palabra entre en tu vida, te ilumine y te mueva a la conversión.</p>
+    <div class="lectio-steps">
+      <div><strong>0. Prepárate</strong><span>Busca silencio, ponte en presencia de Dios e invoca al Espíritu Santo.</span></div>
+      <div><strong>1. Lee y entiende</strong><span>Lee despacio. Mira qué dice el texto: quién aparece, qué sucede, qué palabras se repiten.</span></div>
+      <div><strong>2. Escucha</strong><span>Pregunta qué te dice Dios hoy en tu vida real: heridas, decisiones, relaciones y búsquedas.</span></div>
+      <div><strong>3. Responde</strong><span>Habla con el Señor desde lo que has escuchado: agradece, pide, ofrece, pide perdón o alaba.</span></div>
+      <div><strong>4. Descansa</strong><span>Si puedes, permanece un momento en silencio amoroso. No hace falta pensar mucho.</span></div>
+      <div><strong>5. Llévalo a la vida</strong><span>Elige un paso pequeño, concreto y posible para hoy o para esta semana.</span></div>
+    </div>
+  </div>`;
 }
 
 function renderAboutCard() {
@@ -577,8 +729,43 @@ function chooseTime(value) {
   render();
 }
 
+function setReadMode(mode) {
+  localStorage.setItem("pistasReadMode", mode);
+  render();
+}
+
+function showDailyImage(fecha) {
+  const p = getPista(fecha);
+  if (!hasImage(p)) return;
+  const url = escapeHtml(p.imagenDiaUrl);
+  showModal("Imagen del día", `
+    <p>Una síntesis visual para recordar y compartir la Palabra de hoy.</p>
+    <img class="daily-image" src="${url}" alt="Imagen del día: ${escapeHtml(p.titulo)}" loading="lazy">
+    <div class="button-row">
+      <a class="button" href="${url}" target="_blank" rel="noreferrer">Abrir imagen</a>
+      <button class="button secondary" onclick="shareImageByDate('${p.fecha}')">Compartir</button>
+    </div>
+  `);
+}
+
+async function shareImageByDate(fecha) {
+  const p = getPista(fecha);
+  if (!hasImage(p)) return;
+  await shareText(
+    `Imagen del día — ${p.titulo}`,
+    `${p.titulo}
+${p.celebracion}
+${p.cita}`,
+    p.imagenDiaUrl
+  );
+}
+
 function sharePistaByDate(fecha) {
   sharePista(getPista(fecha));
+}
+
+function shareWhatsappPistaByDate(fecha) {
+  shareWhatsappPista(getPista(fecha));
 }
 
 function copyPistaByDate(fecha) {
@@ -599,7 +786,11 @@ window.deactivateNotifications = deactivateNotifications;
 window.sendLocalTestNotification = sendLocalTestNotification;
 window.chooseTime = chooseTime;
 window.sharePistaByDate = sharePistaByDate;
+window.shareWhatsappPistaByDate = shareWhatsappPistaByDate;
 window.copyPistaByDate = copyPistaByDate;
 window.recommendApp = recommendApp;
+window.setReadMode = setReadMode;
+window.showDailyImage = showDailyImage;
+window.shareImageByDate = shareImageByDate;
 
 init();

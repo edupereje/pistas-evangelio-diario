@@ -1,10 +1,10 @@
 import webpush from "web-push";
-import { json, options } from "./_utils.mjs";
+import { json, options, env } from "./_utils.mjs";
 
 function setupVapid() {
-  const publicKey = Netlify.env.get("VAPID_PUBLIC_KEY") || process.env.VAPID_PUBLIC_KEY;
-  const privateKey = Netlify.env.get("VAPID_PRIVATE_KEY") || process.env.VAPID_PRIVATE_KEY;
-  const subject = Netlify.env.get("VAPID_SUBJECT") || process.env.VAPID_SUBJECT || "mailto:info@example.com";
+  const publicKey = env("VAPID_PUBLIC_KEY");
+  const privateKey = env("VAPID_PRIVATE_KEY");
+  const subject = env("VAPID_SUBJECT") || "mailto:info@example.com";
   if (!publicKey || !privateKey) throw new Error("Faltan claves VAPID");
   webpush.setVapidDetails(subject, publicKey, privateKey);
 }

@@ -1,0 +1,2 @@
+Pistas del Evangelio App v8.5
+Cambio: compartir por WhatsApp envía el texto completo en formato WhatsApp ready con negritas y enlace final.

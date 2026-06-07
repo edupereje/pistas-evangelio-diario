@@ -1,12 +1,12 @@
 import { getStore } from "@netlify/blobs";
 import webpush from "web-push";
-import { madridParts, timeMatches } from "./_utils.mjs";
+import { madridParts, timeMatches, env } from "./_utils.mjs";
 import { getTodayPista } from "./_pistas.mjs";
 
 function setupVapid() {
-  const publicKey = Netlify.env.get("VAPID_PUBLIC_KEY") || process.env.VAPID_PUBLIC_KEY;
-  const privateKey = Netlify.env.get("VAPID_PRIVATE_KEY") || process.env.VAPID_PRIVATE_KEY;
-  const subject = Netlify.env.get("VAPID_SUBJECT") || process.env.VAPID_SUBJECT || "mailto:info@example.com";
+  const publicKey = env("VAPID_PUBLIC_KEY");
+  const privateKey = env("VAPID_PRIVATE_KEY");
+  const subject = env("VAPID_SUBJECT") || "mailto:info@example.com";
   if (!publicKey || !privateKey) throw new Error("Faltan claves VAPID");
   webpush.setVapidDetails(subject, publicKey, privateKey);
 }
@@ -14,7 +14,7 @@ function setupVapid() {
 export default async () => {
   setupVapid();
   const now = madridParts(new Date());
-  const pista = getTodayPista(new Date());
+  const pista = await getTodayPista(new Date());
   const store = getStore({ name: "push-subscriptions", consistency: "strong" });
 
   let checked = 0;
@@ -31,8 +31,8 @@ export default async () => {
       if (item.lastSentDate === now.date) { skipped++; continue; }
 
       const payload = JSON.stringify({
-        title: "Pistas del Evangelio",
-        body: `Ya está disponible la Pista de hoy: ${pista.cita}`,
+        title: pista.notificacionTitulo || "Pistas del Evangelio",
+        body: pista.notificacionTexto || `Ya está disponible la Pista de hoy: ${pista.cita}`,
         url: `/?fecha=${pista.fecha}`
       });
 
