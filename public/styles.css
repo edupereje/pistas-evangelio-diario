@@ -36,3 +36,16 @@ body{margin:0;background:var(--bg);font-family:Aptos,Inter,ui-sans-serif,system-
 .segmented{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#eef7ff;border:1px solid #dbeafe;border-radius:18px;padding:5px;margin-bottom:16px}.segmented button{border:0;border-radius:14px;background:transparent;color:#2563eb;font-weight:820;padding:10px 8px;cursor:pointer}.segmented button.active{background:#fff;color:var(--ink);box-shadow:0 6px 18px rgba(15,23,42,.08)}.lectio-steps{display:grid;gap:10px;margin-top:16px}.lectio-steps div{border:1px solid var(--line);border-radius:18px;background:#fff;padding:14px}.lectio-steps strong{display:block;color:var(--ink);font-size:15px;margin-bottom:4px}.lectio-steps span{display:block;color:var(--muted);font-size:14px;line-height:1.55}.daily-image{display:block;width:100%;border-radius:20px;border:1px solid var(--line);margin:14px 0;background:#f8fbff;box-shadow:var(--shadow-soft)}.source-note{font-size:12px;color:var(--muted);line-height:1.45;margin:8px 0 10px;padding:10px 12px;border-radius:14px;background:#fff7df;border:1px solid #f3e0a1}
 @media(max-width:420px){.h1{font-size:25px}.main{padding:16px}.button-row{grid-template-columns:1fr}.time-grid{grid-template-columns:repeat(2,1fr)}.quote{font-size:17px}.card{border-radius:21px;padding:17px}.title{font-size:21px}}
 @media(min-width:650px){.modal-backdrop{align-items:center}.modal-card{border-radius:30px}}
+.title-button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.title-button:active { opacity: .75; }

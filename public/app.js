@@ -7,7 +7,7 @@ const APP_URL = "https://pistas-evangelio-diario.netlify.app";
 const DONATION_URL = "https://www.donoamiiglesia.es/san/Home?st=&uri=nm%3Aoid%3AZ6_KP98H380OG7J40QGP8F2L01003#!/donar/21acd17c-ed3e-e611-80e8-005056b101e1";
 const CONTACT_PHONE = "34662519044";
 const CONTENT_API_URL = "/api/pistas";
-const STATIC_FALLBACK_URL = "/data/pistas.json?v=8.5";
+const STATIC_FALLBACK_URL = "/data/pistas.json?v=8.7";
 const REMEMBER_STEPS = [
   "Pide el Espíritu Santo",
   "Lee despacio y entiende",
@@ -85,13 +85,29 @@ function getPista(fecha) {
   return pistas.find((p) => p.fecha === fecha && isPastOrToday(p.fecha)) || getTodayPista();
 }
 
+function cleanVapidPublicKey(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^VAPID_PUBLIC_KEY\s*=\s*/i, "")
+    .replace(/^['"]|['"]$/g, "")
+    .replace(/\s+/g, "");
+}
+
 function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
-  return outputArray;
+  const key = cleanVapidPublicKey(base64String);
+  if (!key) throw new Error("Falta la clave pública VAPID.");
+
+  const padding = "=".repeat((4 - key.length % 4) % 4);
+  const base64 = (key + padding).replace(/-/g, "+").replace(/_/g, "/");
+
+  try {
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+  } catch (error) {
+    throw new Error("La clave pública VAPID no tiene formato válido. Revisa VAPID_PUBLIC_KEY en Netlify: debe pegarse solo el valor, sin 'VAPID_PUBLIC_KEY=' ni comillas.");
+  }
 }
 
 async function getActiveSubscription() {
@@ -128,14 +144,25 @@ function rememberText() {
   return REMEMBER_STEPS.map((step, index) => `${index + 1}. ${step}`).join("\n");
 }
 
+const CLOSING_TEXT = "Relee el Evangelio, escucha lo que Dios te dice, respóndele con tu oración y llévalo a tu vida.";
+
 function cleanPistasTextForShare(pistas) {
-  const text = String(pistas || "").trim();
-  return text.replace(/\n?\s*\*?Relee el Evangelio, escucha lo que Dios te dice, respóndele con tu oración y llévalo a tu vida\.?\*?\s*$/i, "").trim();
+  let text = String(pistas || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+
+  // Evita duplicar el cierre cuando ya viene incluido en la hoja de contenidos.
+  const closingPattern = /\n*\s*\*?_?Relee el Evangelio, escucha lo que Dios te dice, respóndele con tu oración y llévalo a tu vida\.?_?\*?\s*$/i;
+  while (closingPattern.test(text)) {
+    text = text.replace(closingPattern, "").trim();
+  }
+  return text;
 }
 
 function formatFullText(p) {
   const pistasText = cleanPistasTextForShare(p.pistas);
-  return `*${p.titulo}*\n*${p.celebracion}*\n\n(Recuerda:  \n${rememberText()})\n\n*${p.evangelioTitulo}*\n${p.evangelio}\n\n*Pistas:* ${pistasText}\n\n*Relee el Evangelio, escucha lo que Dios te dice, respóndele con tu oración y llévalo a tu vida.*`;
+  return `*${p.titulo}*\n*${p.celebracion}*\n\n(Recuerda:  \n${rememberText()})\n\n*${p.evangelioTitulo}*\n${p.evangelio}\n\n*Pistas:* ${pistasText}\n\n*${CLOSING_TEXT}*`;
 }
 
 function formatShareText(p, includeLink = false) {
@@ -146,7 +173,7 @@ function formatShareText(p, includeLink = false) {
 async function init() {
   renderLoading();
   if ("serviceWorker" in navigator) {
-    await navigator.serviceWorker.register("/sw.js?v=8.5");
+    await navigator.serviceWorker.register("/sw.js?v=8.7");
   }
 
   // Cargamos primero una copia local de respaldo para que la app nunca quede vacía
@@ -345,6 +372,7 @@ async function activateNotifications() {
   try {
     const config = await fetch("/api/config").then((r) => r.json());
     if (!config.publicKey) throw new Error(config.error || "Falta clave pública VAPID");
+    config.publicKey = cleanVapidPublicKey(config.publicKey);
 
     const registration = await navigator.serviceWorker.ready;
     let subscription = await registration.pushManager.getSubscription();
@@ -467,14 +495,10 @@ function whatsappPista(p) {
 
 async function shareWhatsappPista(p) {
   const text = formatShareText(p, true);
-  // En móviles, el selector nativo evita problemas de límite de longitud de URL
-  // y permite escoger WhatsApp conservando el texto completo con formato.
-  if (navigator.share) {
-    await navigator.share({ title: `Pistas del Evangelio — ${p.titulo}`, text });
-    return;
-  }
-  await navigator.clipboard.writeText(text);
-  window.open(whatsappPista(p), "_blank", "noopener,noreferrer");
+  // Usamos enlace directo de WhatsApp para que el cuadro de chat se abra con
+  // el texto completo ya preparado en formato WhatsApp-ready.
+  const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function contactWhatsapp(p) {
@@ -484,7 +508,7 @@ function contactWhatsapp(p) {
 function contactMail(p) {
   const subject = encodeURIComponent(`Pista del Evangelio — ${p.titulo}`);
   const body = encodeURIComponent(`Hola, he leído la Pista del Evangelio de ${p.titulo} (${p.cita}) y quería comentar...`);
-  return `mailto:?subject=${subject}&body=${body}`;
+  return `mailto:pistas.evangelio@gmail.com?subject=${subject}&body=${body}`;
 }
 
 function extractHighlight(p) {
@@ -505,7 +529,7 @@ function render() {
   app.innerHTML = `<div class="app">
     <header class="header">
       <div class="logo"><img src="/icons/icon-192.png" alt=""></div>
-      <div><div class="title">Pistas del Evangelio</div><div class="subtitle">Para entender, rezar y llevar a la vida</div></div>
+      <div><button class="title title-button" onclick="goHome()">Pistas del Evangelio</button><div class="subtitle">Para entender, rezar y llevar a la vida</div></div>
     </header>
     <main class="main">${renderMain(today, state)}</main>
     ${renderNav()}
@@ -545,6 +569,7 @@ function renderHoy(p, state) {
       <button class="button secondary" onclick="setTab('archivo')">Archivo</button>
     </div>
     ${renderRecommendCard()}
+    ${renderHowToUseButtonCard()}
     ${renderDonateCard()}
   </section>`;
 }
@@ -606,11 +631,12 @@ function renderLectura(p) {
     </div>
     ${renderRememberCard(true)}
     <section class="card"><h2 class="section-title">${p.evangelioTitulo}</h2><div class="text">${escapeHtml(p.evangelio)}</div></section>
-    ${starting ? renderContentSwitcher(p) : `<section class="card pistas-card"><h2 class="section-title">Pistas</h2><div class="text">${escapeHtml(p.pistas)}</div></section>`}
+    ${starting ? renderContentSwitcher(p) : `<section class="card pistas-card"><h2 class="section-title">Pistas</h2><div class="text">${escapeHtml(cleanPistasTextForShare(p.pistas))}</div></section>`}
     ${image ? `<div class="card image-card"><h2 class="section-title">Imagen del día</h2><p class="muted">Una síntesis visual para recordar y compartir la Palabra de hoy.</p><button class="button soft" onclick="showDailyImage('${p.fecha}')">Ver imagen del día</button></div>` : ""}
-    <div class="card closing">Relee el Evangelio, escucha lo que Dios te dice, respóndele con tu oración y llévalo a tu vida.</div>
+    <div class="card closing">${CLOSING_TEXT}</div>
     <div class="card"><h2 class="section-title">Compartir o guardar</h2><div class="button-row"><button class="button" onclick="sharePistaByDate('${p.fecha}')">Compartir</button><button class="button secondary" onclick="copyPistaByDate('${p.fecha}')">Copiar</button></div><button class="button secondary" style="margin-top:10px" onclick="shareWhatsappPistaByDate('${p.fecha}')">Compartir por WhatsApp</button></div>
     <div class="card"><h2 class="section-title">Comentar o preguntar</h2><p class="muted">Si esta Pista te ha suscitado alguna pregunta o quieres compartir algo, puedes escribir directamente.</p><div class="button-row"><a class="button" href="${contactWhatsapp(p)}" target="_blank" rel="noreferrer">WhatsApp</a><a class="button secondary" href="${contactMail(p)}">Correo</a></div></div>
+    ${renderHowToUseButtonCard()}
     ${renderDonateCard()}
   </article>`;
 }
@@ -624,7 +650,7 @@ function renderContentSwitcher(p) {
       <button class="${showStarting ? "active" : ""}" onclick="setReadMode('empezando')">Estoy empezando</button>
     </div>
     <h2 class="section-title">${showStarting ? "Estoy empezando" : "Pistas"}</h2>
-    <div class="text">${escapeHtml(showStarting ? p.estoyEmpezando : p.pistas)}</div>
+    <div class="text">${escapeHtml(showStarting ? p.estoyEmpezando : cleanPistasTextForShare(p.pistas))}</div>
   </section>`;
 }
 
@@ -638,7 +664,8 @@ function renderRememberCard(compact = false) {
 
 function renderArchivo() {
   return `<section>
-    <h1 class="h1">Archivo</h1>
+    <button class="button secondary back" onclick="goHome()">← Volver</button>
+    <h1 class="h1" style="margin-top:14px">Archivo</h1>
     <p class="muted">Pistas anteriores disponibles para volver a rezar con ellas.</p>
     <div class="list">${availablePistas().slice().reverse().map((p) => `<a class="archive-item" href="?fecha=${p.fecha}&leer=1" onclick="event.preventDefault(); openPista('${p.fecha}')"><strong>${p.titulo}</strong><span class="muted">${p.celebracion}</span><br><span class="pill">${p.cita}</span></a>`).join("")}</div>
   </section>`;
@@ -646,7 +673,8 @@ function renderArchivo() {
 
 function renderAjustes(state) {
   return `<section>
-    <h1 class="h1">Ajustes</h1>
+    <button class="button secondary back" onclick="goHome()">← Volver</button>
+    <h1 class="h1" style="margin-top:14px">Ajustes</h1>
     <p class="muted">Instalación, notificaciones, ayuda y contacto.</p>
     ${!isStandalone() ? `<div class="card"><h2 class="section-title">Instalar en el móvil</h2><p class="muted">Instala la app para recibir la notificación diaria y acceder más rápido.</p><div class="button-row"><button class="button soft" onclick="${isIOS() ? "showInstallHelp()" : "installApp()"}">${isIOS() ? "Ver guía iPhone" : "Instalar app"}</button><button class="button secondary" onclick="showInstallHelp()">Instrucciones</button></div></div>` : ""}
     ${renderPrayerCard(true)}
@@ -661,17 +689,7 @@ function renderAjustes(state) {
 }
 
 function renderHowToUseCard() {
-  return `<div class="card"><h2 class="section-title">Cómo rezar con la Palabra</h2>
-    <p class="muted">La lectio divina no es un simple estudio de la Biblia. Es un encuentro personal con Dios a través de su Palabra. No se trata de “terminar el texto”, sino de dejar que la Palabra entre en tu vida, te ilumine y te mueva a la conversión.</p>
-    <div class="lectio-steps">
-      <div><strong>0. Prepárate</strong><span>Busca silencio, ponte en presencia de Dios e invoca al Espíritu Santo.</span></div>
-      <div><strong>1. Lee y entiende</strong><span>Lee despacio. Mira qué dice el texto: quién aparece, qué sucede, qué palabras se repiten.</span></div>
-      <div><strong>2. Escucha</strong><span>Pregunta qué te dice Dios hoy en tu vida real: heridas, decisiones, relaciones y búsquedas.</span></div>
-      <div><strong>3. Responde</strong><span>Habla con el Señor desde lo que has escuchado: agradece, pide, ofrece, pide perdón o alaba.</span></div>
-      <div><strong>4. Descansa</strong><span>Si puedes, permanece un momento en silencio amoroso. No hace falta pensar mucho.</span></div>
-      <div><strong>5. Llévalo a la vida</strong><span>Elige un paso pequeño, concreto y posible para hoy o para esta semana.</span></div>
-    </div>
-  </div>`;
+  return `<div class="card"><h2 class="section-title">Cómo rezar con la Palabra</h2>${renderHowToUseContent()}</div>`;
 }
 
 function renderAboutCard() {
@@ -692,6 +710,26 @@ function renderRecommendCard() {
 
 function renderDonateCard() {
   return `<div class="card donate-card"><h2 class="section-title">Donar</h2><p class="muted">Si crees que merece la pena dar a conocer esta herramienta, tu donación lo hará posible.</p><a class="button" href="${DONATION_URL}" target="_blank" rel="noreferrer">Donar a través de Dono a mi Iglesia</a></div>`;
+}
+
+function renderHowToUseButtonCard() {
+  return `<div class="card"><h2 class="section-title">Cómo rezar con la Palabra</h2><p class="muted">Una ayuda breve para entrar en el Evangelio como oración: pedir el Espíritu Santo, leer, escuchar, responder y llevarlo a la vida.</p><button class="button soft" onclick="showHowToUseModal()">Ver guía breve</button></div>`;
+}
+
+function showHowToUseModal() {
+  showModal("Cómo rezar con la Palabra", renderHowToUseContent());
+}
+
+function renderHowToUseContent() {
+  return `<p>La lectio divina no es un simple estudio de la Biblia. Es un encuentro personal con Dios a través de su Palabra.</p>
+    <div class="lectio-steps">
+      <div><strong>0. Prepárate</strong><span>Busca silencio, ponte en presencia de Dios e invoca al Espíritu Santo.</span></div>
+      <div><strong>1. Lee y entiende</strong><span>Lee despacio. Mira qué dice el texto: quién aparece, qué sucede, qué palabras se repiten.</span></div>
+      <div><strong>2. Escucha</strong><span>Pregunta qué te dice Dios hoy en tu vida real: heridas, decisiones, relaciones y búsquedas.</span></div>
+      <div><strong>3. Responde</strong><span>Habla con el Señor desde lo que has escuchado: agradece, pide, ofrece, pide perdón o alaba.</span></div>
+      <div><strong>4. Descansa</strong><span>Si puedes, permanece un momento en silencio amoroso. No hace falta pensar mucho.</span></div>
+      <div><strong>5. Llévalo a la vida</strong><span>Elige un paso pequeño, concreto y posible para hoy o para esta semana.</span></div>
+    </div>`;
 }
 
 function renderNav() {
@@ -792,5 +830,6 @@ window.recommendApp = recommendApp;
 window.setReadMode = setReadMode;
 window.showDailyImage = showDailyImage;
 window.shareImageByDate = shareImageByDate;
+window.showHowToUseModal = showHowToUseModal;
 
 init();
