@@ -60,3 +60,8 @@ El archivo `netlify.toml` ya contiene la configuración.
 4. Añadir `estoyEmpezando` cuando esté preparado.
 5. Añadir `imagenDiaUrl` solo en los días con imagen.
 6. La app se actualiza sin tocar GitHub ni Netlify.
+
+
+## v8.8
+
+La fuente fija de contenido es el Google Sheet con ID `1215FbbLsqQU0PMgVjwl5m064tADoTlFvLjA3CVhTk_E`, hoja `Contenido`. La función `/api/pistas` intenta Apps Script si está configurado, pero si falla lee directamente el CSV público del Google Sheet fijo. El respaldo local `public/data/pistas.json` está actualizado con mayo y junio disponibles en el archivo entregado.

@@ -1,5 +1,5 @@
 const CACHE_NAME = "pistas-v8-7-ajustes-20260609";
-const APP_SHELL = ["/", "/index.html", "/styles.css?v=8.7", "/app.js?v=8.7", "/manifest.webmanifest?v=8.7"];
+const APP_SHELL = ["/", "/index.html", "/styles.css?v=8.8", "/app.js?v=8.8", "/manifest.webmanifest?v=8.8"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -21,8 +21,8 @@ self.addEventListener("push", (event) => {
   try { data = event.data.json(); } catch (e) {}
   event.waitUntil(self.registration.showNotification(data.title, {
     body: data.body,
-    icon: "/icons/icon-192.png?v=8.7",
-    badge: "/icons/icon-192.png?v=8.7",
+    icon: "/icons/icon-192.png?v=8.8",
+    badge: "/icons/icon-192.png?v=8.8",
     data: { url: data.url || "/" }
   }));
 });
