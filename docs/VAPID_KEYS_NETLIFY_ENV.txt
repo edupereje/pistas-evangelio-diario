@@ -1,5 +1,17 @@
-VAPID_PUBLIC_KEY=BHR6zVBFkg4A-xxXc_xPznrf7AXJIp18bHnp3O1UyptVyjJrMkHIHeW1XxYVeiinncM_jXSmUye2lLL67poTr1U
-VAPID_PRIVATE_KEY=djwXWlrOourM23Lw_32TWFv9jFn3NlBs-dsil7OnC4I
+# Claves VAPID para Netlify — v8.9
+
+Copia estos valores en Netlify → Configuration → Environment variables.
+
+IMPORTANTE: en Netlify pega solo lo que va después del signo =.
+No pegues el nombre de la variable ni comillas.
+
+VAPID_PUBLIC_KEY=BKzwPUpWjnesXytP4fQctrlZMdQqoaXVmnNMzleyulYuftoW0FWtZdwKieVFOBEOlquA2G4cTgTPQtv1UKMK4vI
+VAPID_PRIVATE_KEY=RljjZVwzRAbqWs2DOo88A_haJxrb7_Mp2TsmGuL2Ke4
 VAPID_SUBJECT=mailto:info@pistas-evangelio-diario.netlify.app
-# Opcional, recomendado para poder cambiar la fuente sin tocar código:
+
+# Fuente fija de contenido
 CONTENT_API_URL=https://script.google.com/macros/s/AKfycbwp6Wadx4mDBeTtlQDVBnlUn1ty7eWcipS2pG-OQTAN3jqTNFVULLjUIDDJ4ZE1TOfpWQ/exec
+
+# Comprobación después de desplegar
+# https://pistas-evangelio-diario.netlify.app/api/notification-diagnostics?v=89
+# Debe devolver keysMatch:true

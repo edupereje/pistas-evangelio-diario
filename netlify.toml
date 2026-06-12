@@ -25,6 +25,11 @@
   to = "/.netlify/functions/test-notification"
   status = 200
 
+[[redirects]]
+  from = "/api/notification-diagnostics"
+  to = "/.netlify/functions/notification-diagnostics"
+  status = 200
+
 
 [[redirects]]
   from = "/api/pistas"

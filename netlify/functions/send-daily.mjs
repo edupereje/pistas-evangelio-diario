@@ -1,12 +1,10 @@
 import { getStore } from "@netlify/blobs";
 import webpush from "web-push";
-import { madridParts, timeMatches, env } from "./_utils.mjs";
+import { madridParts, timeMatches, vapidEnv } from "./_utils.mjs";
 import { getTodayPista } from "./_pistas.mjs";
 
 function setupVapid() {
-  const publicKey = env("VAPID_PUBLIC_KEY");
-  const privateKey = env("VAPID_PRIVATE_KEY");
-  const subject = env("VAPID_SUBJECT") || "mailto:info@example.com";
+  const { publicKey, privateKey, subject } = vapidEnv();
   if (!publicKey || !privateKey) throw new Error("Faltan claves VAPID");
   webpush.setVapidDetails(subject, publicKey, privateKey);
 }
@@ -48,7 +46,7 @@ export default async () => {
           await store.delete(blob.key);
           removed++;
         } else {
-          console.error("Error enviando push", blob.key, error);
+          console.error("Error enviando push", blob.key, error?.statusCode || error?.status || "", error?.message || error, error?.body || "");
         }
       }
     }

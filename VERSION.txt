@@ -1,1 +1,1 @@
-v8.8 — Google Sheet fijo por ID, fallback actualizado hasta junio y diagnóstico API
+v8.9 — claves VAPID regeneradas y diagnóstico de notificaciones

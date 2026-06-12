@@ -65,3 +65,13 @@ El archivo `netlify.toml` ya contiene la configuración.
 ## v8.8
 
 La fuente fija de contenido es el Google Sheet con ID `1215FbbLsqQU0PMgVjwl5m064tADoTlFvLjA3CVhTk_E`, hoja `Contenido`. La función `/api/pistas` intenta Apps Script si está configurado, pero si falla lee directamente el CSV público del Google Sheet fijo. El respaldo local `public/data/pistas.json` está actualizado con mayo y junio disponibles en el archivo entregado.
+
+
+## v8.9 — Notificaciones rehechas
+
+- Claves VAPID nuevas y emparejadas.
+- Limpieza automática de variables VAPID en las funciones.
+- Diagnóstico disponible en `/api/notification-diagnostics`.
+- `test-notification` devuelve un error legible si falla el envío.
+
+Después de subir esta versión, copia las claves de `docs/VAPID_KEYS_NETLIFY_ENV.txt` a Netlify → Environment variables y haz `Clear cache and deploy site`.

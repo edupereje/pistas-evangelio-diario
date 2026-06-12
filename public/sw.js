@@ -1,5 +1,5 @@
-const CACHE_NAME = "pistas-v8-7-ajustes-20260609";
-const APP_SHELL = ["/", "/index.html", "/styles.css?v=8.8", "/app.js?v=8.8", "/manifest.webmanifest?v=8.8"];
+const CACHE_NAME = "pistas-v8-9-notificaciones-20260609";
+const APP_SHELL = ["/", "/index.html", "/styles.css?v=8.9", "/app.js?v=8.9", "/manifest.webmanifest?v=8.9"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -21,8 +21,8 @@ self.addEventListener("push", (event) => {
   try { data = event.data.json(); } catch (e) {}
   event.waitUntil(self.registration.showNotification(data.title, {
     body: data.body,
-    icon: "/icons/icon-192.png?v=8.8",
-    badge: "/icons/icon-192.png?v=8.8",
+    icon: "/icons/icon-192.png?v=8.9",
+    badge: "/icons/icon-192.png?v=8.9",
     data: { url: data.url || "/" }
   }));
 });
