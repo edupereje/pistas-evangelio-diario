@@ -75,3 +75,9 @@ La fuente fija de contenido es el Google Sheet con ID `1215FbbLsqQU0PMgVjwl5m064
 - `test-notification` devuelve un error legible si falla el envío.
 
 Después de subir esta versión, copia las claves de `docs/VAPID_KEYS_NETLIFY_ENV.txt` a Netlify → Environment variables y haz `Clear cache and deploy site`.
+
+
+## v8.10
+- Al activar notificaciones se renueva siempre la suscripción push para evitar errores 403 por claves VAPID antiguas.
+- La prueba de notificación intenta recrear automáticamente la suscripción si detecta una suscripción creada con claves anteriores.
+- El envío diario elimina suscripciones antiguas que devuelvan 403/404/410.

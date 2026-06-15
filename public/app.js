@@ -7,7 +7,7 @@ const APP_URL = "https://pistas-evangelio-diario.netlify.app";
 const DONATION_URL = "https://www.donoamiiglesia.es/san/Home?st=&uri=nm%3Aoid%3AZ6_KP98H380OG7J40QGP8F2L01003#!/donar/21acd17c-ed3e-e611-80e8-005056b101e1";
 const CONTACT_PHONE = "34662519044";
 const CONTENT_API_URL = "/api/pistas";
-const STATIC_FALLBACK_URL = "/data/pistas.json?v=8.9";
+const STATIC_FALLBACK_URL = "/data/pistas.json?v=8.10";
 const REMEMBER_STEPS = [
   "Pide el Espíritu Santo",
   "Lee despacio y entiende",
@@ -345,6 +345,44 @@ function dismissInstall() {
   render();
 }
 
+async function getNotificationConfig() {
+  const config = await fetch(`/api/config?v=${Date.now()}`).then((r) => r.json());
+  if (!config.publicKey) throw new Error(config.error || "Falta clave pública VAPID");
+  return { publicKey: cleanVapidPublicKey(config.publicKey) };
+}
+
+async function createFreshSubscription(publicKey) {
+  const registration = await navigator.serviceWorker.ready;
+  const existing = await registration.pushManager.getSubscription();
+  if (existing) {
+    try {
+      await fetch("/api/unsubscribe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ endpoint: existing.endpoint })
+      });
+    } catch (_) {}
+    try { await existing.unsubscribe(); } catch (_) {}
+  }
+  return await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(publicKey)
+  });
+}
+
+async function registerSubscriptionOnServer(subscription, time) {
+  const response = await fetch("/api/subscribe", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subscription, time })
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || "No se pudo guardar la suscripción");
+  }
+}
+
 async function activateNotifications() {
   const time = document.querySelector("#timeInput")?.value || prayerTime();
   setPrayerTime(time);
@@ -370,31 +408,12 @@ async function activateNotifications() {
   }
 
   try {
-    const config = await fetch("/api/config").then((r) => r.json());
-    if (!config.publicKey) throw new Error(config.error || "Falta clave pública VAPID");
-    config.publicKey = cleanVapidPublicKey(config.publicKey);
+    const config = await getNotificationConfig();
+    // Siempre renovamos la suscripción. Así evitamos el error 403 cuando han cambiado las claves VAPID.
+    const subscription = await createFreshSubscription(config.publicKey);
+    await registerSubscriptionOnServer(subscription, time);
 
-    const registration = await navigator.serviceWorker.ready;
-    let subscription = await registration.pushManager.getSubscription();
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(config.publicKey)
-      });
-    }
-
-    const response = await fetch("/api/subscribe", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ subscription, time })
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || "No se pudo guardar la suscripción");
-    }
-
-    saveNotificationState({ active: true, time, permission: "granted", mode: "real" });
+    saveNotificationState({ active: true, time, permission: "granted", mode: "real", refreshedAt: new Date().toISOString() });
     alert(`Aviso diario activado a las ${time}.`);
     render();
   } catch (error) {
@@ -422,6 +441,24 @@ async function deactivateNotifications() {
   render();
 }
 
+async function sendTestNotificationRequest(subscription) {
+  const response = await fetch("/api/test-notification", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subscription })
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || "No se pudo enviar la prueba");
+  }
+}
+
+function isOldVapidSubscriptionError(error) {
+  const text = String(error?.message || error || "");
+  return /VAPID credentials|authorization header|credentials used to create the subscriptions|403/i.test(text);
+}
+
 async function sendLocalTestNotification() {
   if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
     alert("Este dispositivo no admite notificaciones push web.");
@@ -434,21 +471,21 @@ async function sendLocalTestNotification() {
   }
 
   try {
-    const subscription = await getActiveSubscription();
+    let subscription = await getActiveSubscription();
     if (!subscription) {
       alert("No hay una suscripción activa. Pulsa primero ‘Activar notificaciones’. ");
       return;
     }
 
-    const response = await fetch("/api/test-notification", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ subscription })
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || "No se pudo enviar la prueba");
+    try {
+      await sendTestNotificationRequest(subscription);
+    } catch (error) {
+      if (!isOldVapidSubscriptionError(error)) throw error;
+      const config = await getNotificationConfig();
+      subscription = await createFreshSubscription(config.publicKey);
+      await registerSubscriptionOnServer(subscription, prayerTime());
+      saveNotificationState({ active: true, time: prayerTime(), permission: "granted", mode: "real", refreshedAt: new Date().toISOString() });
+      await sendTestNotificationRequest(subscription);
     }
 
     alert("Notificación de prueba enviada.");

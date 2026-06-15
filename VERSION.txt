@@ -1,1 +1,1 @@
-v8.9 — claves VAPID regeneradas y diagnóstico de notificaciones
+v8.10 — renueva suscripciones push al cambiar claves VAPID

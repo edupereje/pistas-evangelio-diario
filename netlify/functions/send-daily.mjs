@@ -42,7 +42,7 @@ export default async () => {
         sent++;
       } catch (error) {
         const status = error?.statusCode || error?.status;
-        if (status === 404 || status === 410) {
+        if (status === 403 || status === 404 || status === 410) {
           await store.delete(blob.key);
           removed++;
         } else {
