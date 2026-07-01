@@ -1,0 +1,11 @@
+{
+  "name": "pistas-evangelio-v6-notificaciones-reales",
+  "version": "6.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@netlify/blobs": "latest",
+    "@netlify/functions": "latest",
+    "web-push": "latest"
+  }
+}
