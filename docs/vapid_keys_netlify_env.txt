@@ -1,3 +1,0 @@
-VAPID_PUBLIC_KEY=BHR6zVBFkg4A-xxXc_xPznrf7AXJIp18bHnp3O1UyptVyjJrMkHIHeW1XxYVeiinncM_jXSmUye2lLL67poTr1U
-VAPID_PRIVATE_KEY=djwXWlrOourM23Lw_32TWFv9jFn3NlBs-dsil7OnC4I
-VAPID_SUBJECT=mailto:info@pistas-evangelio-diario.netlify.app

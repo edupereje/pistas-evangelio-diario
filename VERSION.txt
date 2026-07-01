@@ -1,1 +1,0 @@
-v8.10 — renueva suscripciones push al cambiar claves VAPID
