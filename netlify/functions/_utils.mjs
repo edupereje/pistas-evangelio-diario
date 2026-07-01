@@ -55,29 +55,3 @@ export function timeMatches(chosen, current) {
   const diff = n - c;
   return diff >= 0 && diff < 15;
 }
-
-export function env(name) {
-  try {
-    if (typeof Netlify !== "undefined" && Netlify.env?.get) return Netlify.env.get(name);
-  } catch (_) {}
-  return process.env[name];
-}
-
-
-export function cleanEnvValue(value, variableName = "") {
-  let text = String(value || "").trim();
-  if (variableName) {
-    const re = new RegExp(`^${variableName}\\s*=\\s*`, "i");
-    text = text.replace(re, "");
-  }
-  text = text.replace(/^['"]|['"]$/g, "").replace(/\s+/g, "");
-  return text;
-}
-
-export function vapidEnv() {
-  return {
-    publicKey: cleanEnvValue(env("VAPID_PUBLIC_KEY"), "VAPID_PUBLIC_KEY"),
-    privateKey: cleanEnvValue(env("VAPID_PRIVATE_KEY"), "VAPID_PRIVATE_KEY"),
-    subject: String(env("VAPID_SUBJECT") || "mailto:info@pistas-evangelio-diario.netlify.app").trim().replace(/^VAPID_SUBJECT\s*=\s*/i, "")
-  };
-}

@@ -6,6 +6,11 @@
   node_bundler = "esbuild"
 
 [[redirects]]
+  from = "/api/pistas"
+  to = "/.netlify/functions/pistas"
+  status = 200
+
+[[redirects]]
   from = "/api/config"
   to = "/.netlify/functions/config"
   status = 200
@@ -23,17 +28,6 @@
 [[redirects]]
   from = "/api/test-notification"
   to = "/.netlify/functions/test-notification"
-  status = 200
-
-[[redirects]]
-  from = "/api/notification-diagnostics"
-  to = "/.netlify/functions/notification-diagnostics"
-  status = 200
-
-
-[[redirects]]
-  from = "/api/pistas"
-  to = "/.netlify/functions/pistas"
   status = 200
 
 [[redirects]]

@@ -1,10 +1,12 @@
 import { getStore } from "@netlify/blobs";
 import webpush from "web-push";
-import { madridParts, timeMatches, vapidEnv } from "./_utils.mjs";
+import { madridParts, timeMatches } from "./_utils.mjs";
 import { getTodayPista } from "./_pistas.mjs";
 
 function setupVapid() {
-  const { publicKey, privateKey, subject } = vapidEnv();
+  const publicKey = Netlify.env.get("VAPID_PUBLIC_KEY") || process.env.VAPID_PUBLIC_KEY;
+  const privateKey = Netlify.env.get("VAPID_PRIVATE_KEY") || process.env.VAPID_PRIVATE_KEY;
+  const subject = Netlify.env.get("VAPID_SUBJECT") || process.env.VAPID_SUBJECT || "mailto:info@example.com";
   if (!publicKey || !privateKey) throw new Error("Faltan claves VAPID");
   webpush.setVapidDetails(subject, publicKey, privateKey);
 }
@@ -13,6 +15,7 @@ export default async () => {
   setupVapid();
   const now = madridParts(new Date());
   const pista = await getTodayPista(new Date());
+  if (!pista) throw new Error("No se encontró ninguna Pista publicada para enviar notificaciones");
   const store = getStore({ name: "push-subscriptions", consistency: "strong" });
 
   let checked = 0;
@@ -29,8 +32,8 @@ export default async () => {
       if (item.lastSentDate === now.date) { skipped++; continue; }
 
       const payload = JSON.stringify({
-        title: pista.notificacionTitulo || "Pistas del Evangelio",
-        body: pista.notificacionTexto || `Ya está disponible la Pista de hoy: ${pista.cita}`,
+        title: "Pistas del Evangelio",
+        body: `Ya está disponible la Pista de hoy: ${pista.cita}`,
         url: `/?fecha=${pista.fecha}`
       });
 
@@ -42,11 +45,11 @@ export default async () => {
         sent++;
       } catch (error) {
         const status = error?.statusCode || error?.status;
-        if (status === 403 || status === 404 || status === 410) {
+        if (status === 404 || status === 410) {
           await store.delete(blob.key);
           removed++;
         } else {
-          console.error("Error enviando push", blob.key, error?.statusCode || error?.status || "", error?.message || error, error?.body || "");
+          console.error("Error enviando push", blob.key, error);
         }
       }
     }

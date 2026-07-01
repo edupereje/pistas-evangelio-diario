@@ -1,140 +1,29 @@
-const FIXED_SHEET_ID = "1215FbbLsqQU0PMgVjwl5m064tADoTlFvLjA3CVhTk_E";
-const FIXED_SHEET_NAME = "Contenido";
-const FIXED_GOOGLE_SHEET_URL = `https://docs.google.com/spreadsheets/d/${FIXED_SHEET_ID}/edit?usp=sharing`;
-const DEFAULT_CONTENT_API_URL = "https://script.google.com/macros/s/AKfycbwp6Wadx4mDBeTtlQDVBnlUn1ty7eWcipS2pG-OQTAN3jqTNFVULLjUIDDJ4ZE1TOfpWQ/exec";
+const DEFAULT_SHEET_ID = "1215FbbLsqQU0PMgVjwl5m064tADoTlFvLjA3CVhTk_E";
+const DEFAULT_SHEET_NAME = "Contenido";
 
-let cached = null;
-let cachedAt = 0;
-const CACHE_TTL_MS = 5 * 60 * 1000;
-
-function env(name) {
+function envValue(name) {
   try {
     if (typeof Netlify !== "undefined" && Netlify.env?.get) return Netlify.env.get(name);
   } catch (_) {}
   return process.env[name];
 }
 
-export function contentApiUrl() {
-  const value = String(env("CONTENT_API_URL") || "").trim();
-  return value || DEFAULT_CONTENT_API_URL;
+export function sheetCsvUrl() {
+  const explicit = envValue("PISTAS_SHEET_CSV_URL") || envValue("SHEET_CSV_URL") || envValue("GOOGLE_SHEET_CSV_URL");
+  if (explicit && String(explicit).trim()) return String(explicit).trim();
+
+  const sheetId = envValue("PISTAS_SHEET_ID") || envValue("GOOGLE_SHEET_ID") || DEFAULT_SHEET_ID;
+  const sheetName = envValue("PISTAS_SHEET_NAME") || DEFAULT_SHEET_NAME;
+  return `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
 }
 
-function looksLikeGoogleSheetUrl(url) {
-  return /docs\.google\.com\/spreadsheets\/d\//i.test(String(url || ""));
-}
-
-function csvUrlFromGoogleSheet(url = FIXED_GOOGLE_SHEET_URL) {
-  const match = String(url).match(/\/spreadsheets\/d\/([^/]+)/i);
-  const sheetId = match?.[1] || FIXED_SHEET_ID;
-  return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(FIXED_SHEET_NAME)}&t=${Date.now()}`;
-}
-
-async function fetchJsonFromAppsScript(url) {
-  const response = await fetch(url, {
-    headers: { "accept": "application/json" },
-    redirect: "follow"
-  });
-  if (!response.ok) throw new Error(`Apps Script HTTP ${response.status}`);
-  const data = await response.json();
-  if (!data?.ok || !Array.isArray(data.items)) throw new Error(data?.error || "Respuesta de Apps Script no válida");
-  return { ...data, source: "apps-script" };
-}
-
-async function fetchCsvFromFixedGoogleSheet() {
-  const response = await fetch(csvUrlFromGoogleSheet(FIXED_GOOGLE_SHEET_URL), {
-    headers: { "accept": "text/csv,text/plain,*/*" },
-    redirect: "follow"
-  });
-  if (!response.ok) throw new Error(`Google Sheet CSV HTTP ${response.status}`);
-  const csv = await response.text();
-  const rows = parseCsv(csv);
-  const items = rowsToItems(rows);
-  if (!items.length) throw new Error("El CSV del Google Sheet no devolvió filas de contenido.");
+export function publicSourceInfo() {
+  const url = sheetCsvUrl();
   return {
-    ok: true,
     source: "google-sheet-csv",
-    sheetId: FIXED_SHEET_ID,
-    sheetName: FIXED_SHEET_NAME,
-    sheetUrl: FIXED_GOOGLE_SHEET_URL,
-    fetchedAt: new Date().toISOString(),
-    items
+    sheetId: (url.match(/\/spreadsheets\/d\/([^/]+)/) || [])[1] || null,
+    usesExplicitCsvUrl: Boolean(envValue("PISTAS_SHEET_CSV_URL") || envValue("SHEET_CSV_URL") || envValue("GOOGLE_SHEET_CSV_URL"))
   };
-}
-
-export async function fetchContent({ force = false } = {}) {
-  const now = Date.now();
-  if (!force && cached && now - cachedAt < CACHE_TTL_MS) return cached;
-
-  let data;
-  const configuredUrl = contentApiUrl();
-  const errors = [];
-
-  // 1) Si CONTENT_API_URL apunta por error al Google Sheet, lo tratamos como Google Sheet.
-  // 2) Si apunta al Apps Script, lo usamos primero.
-  // 3) Como garantía permanente, siempre podemos leer del Google Sheet fijo por ID.
-  try {
-    if (looksLikeGoogleSheetUrl(configuredUrl)) {
-      data = await fetchCsvFromFixedGoogleSheet();
-    } else {
-      data = await fetchJsonFromAppsScript(configuredUrl);
-    }
-  } catch (error) {
-    errors.push(error.message);
-    data = await fetchCsvFromFixedGoogleSheet();
-  }
-
-  const items = data.items
-    .map(normalizePista)
-    .filter((item) => item.fecha && item.publicar.toLowerCase() !== "no")
-    .sort((a, b) => a.fecha.localeCompare(b.fecha));
-
-  cached = {
-    ...data,
-    ok: true,
-    items,
-    count: items.length,
-    proxiedAt: new Date().toISOString(),
-    configuredContentApiUrl: configuredUrl,
-    fixedGoogleSheetUrl: FIXED_GOOGLE_SHEET_URL,
-    fallbackErrors: errors
-  };
-  cachedAt = now;
-  return cached;
-}
-
-export function normalizePista(item = {}) {
-  const fieldNames = [
-    "fecha", "publicar", "titulo", "celebracion", "cita", "evangelioTitulo", "evangelio", "pistas",
-    "estoyEmpezando", "fraseDestacada", "imagenDiaUrl", "audioUrl", "notificacionTitulo", "notificacionTexto", "notasInternas"
-  ];
-  const normalized = {};
-  fieldNames.forEach((field) => normalized[field] = String(item[field] || "").trim());
-  normalized.fecha = normalizeDate(normalized.fecha);
-  normalized.publicar = normalized.publicar || "sí";
-  return normalized;
-}
-
-function normalizeDate(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  const es = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (es) return `${es[3]}-${String(es[2]).padStart(2,"0")}-${String(es[1]).padStart(2,"0")}`;
-  return raw.split(" ")[0];
-}
-
-function rowsToItems(rows) {
-  if (!rows.length) return [];
-  const headers = rows[0].map((h) => String(h || "").trim());
-  return rows.slice(1).map((row) => {
-    const item = {};
-    headers.forEach((header, index) => {
-      if (!header) return;
-      item[header] = row[index] || "";
-    });
-    return item;
-  }).filter((item) => item.fecha || item.titulo || item.evangelio || item.pistas);
 }
 
 function parseCsv(text) {
@@ -161,36 +50,159 @@ function parseCsv(text) {
 
     if (char === '"') {
       inQuotes = true;
-    } else if (char === ",") {
+    } else if (char === ',') {
       row.push(cell);
       cell = "";
-    } else if (char === "\n") {
+    } else if (char === '\n') {
       row.push(cell);
       rows.push(row);
       row = [];
       cell = "";
-    } else if (char !== "\r") {
+    } else if (char !== '\r') {
       cell += char;
     }
   }
 
   row.push(cell);
-  if (row.length > 1 || row[0]) rows.push(row);
+  if (row.some((value) => String(value).trim() !== "")) rows.push(row);
   return rows;
 }
 
+function slugHeader(value) {
+  return String(value || "")
+    .replace(/^\uFEFF/, "")
+    .trim();
+}
+
+function excelSerialToIso(value) {
+  const serial = Number(value);
+  if (!Number.isFinite(serial) || serial < 30000 || serial > 60000) return "";
+  const utcDays = Math.floor(serial - 25569);
+  const date = new Date(utcDays * 86400 * 1000);
+  return date.toISOString().slice(0, 10);
+}
+
+export function normalizeDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+
+  const dmy = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+
+  const serial = excelSerialToIso(raw);
+  if (serial) return serial;
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+
+  return raw;
+}
+
+function normalizePublicar(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return text === "sí" || text === "si" || text === "s" || text === "yes" || text === "true" || text === "1";
+}
+
+function titleFromDate(iso) {
+  if (!iso) return "";
+  const date = new Date(`${iso}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return "";
+  const formatted = new Intl.DateTimeFormat("es-ES", {
+    timeZone: "UTC",
+    weekday: "long",
+    day: "numeric",
+    month: "long"
+  }).format(date);
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
+function cleanText(value) {
+  return String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+}
+
+function rowToObject(headers, row) {
+  const object = {};
+  headers.forEach((header, index) => {
+    if (!header) return;
+    object[header] = cleanText(row[index]);
+  });
+  return object;
+}
+
+export function parsePistasCsv(csvText) {
+  const rows = parseCsv(csvText);
+  const headerIndex = rows.findIndex((row) => row.some((cell) => slugHeader(cell) === "fecha") && row.some((cell) => slugHeader(cell) === "publicar"));
+  if (headerIndex < 0) throw new Error("No se encontró la cabecera de la hoja Contenido: fecha, publicar, titulo...");
+
+  const headers = rows[headerIndex].map(slugHeader);
+  const items = [];
+
+  for (const row of rows.slice(headerIndex + 1)) {
+    const object = rowToObject(headers, row);
+    const fecha = normalizeDate(object.fecha);
+    if (!fecha) continue;
+    if (!normalizePublicar(object.publicar)) continue;
+
+    items.push({
+      fecha,
+      publicar: object.publicar || "sí",
+      titulo: object.titulo && !/^\d{5}$/.test(object.titulo) ? object.titulo : titleFromDate(fecha),
+      celebracion: object.celebracion || "",
+      cita: object.cita || "",
+      evangelioTitulo: object.evangelioTitulo || "",
+      evangelio: object.evangelio || "",
+      pistas: object.pistas || "",
+      estoyEmpezando: object.estoyEmpezando || "",
+      fraseDestacada: object.fraseDestacada || "",
+      imagenDiaUrl: object.imagenDiaUrl || "",
+      audioUrl: object.audioUrl || "",
+      notificacionTitulo: object.notificacionTitulo || "",
+      notificacionTexto: object.notificacionTexto || "",
+      notasInternas: object.notasInternas || ""
+    });
+  }
+
+  items.sort((a, b) => a.fecha.localeCompare(b.fecha));
+  return items;
+}
+
+export async function fetchPistasFromSheet() {
+  const url = sheetCsvUrl();
+  const response = await fetch(url, {
+    headers: {
+      "user-agent": "Pistas-del-Evangelio/1.0",
+      "accept": "text/csv,text/plain,*/*"
+    },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`No se pudo leer Google Sheet como CSV. HTTP ${response.status}. Revisa que la hoja esté compartida/publicada y que la URL CSV sea correcta.`);
+  }
+
+  const csv = await response.text();
+  const items = parsePistasCsv(csv);
+  if (!items.length) throw new Error("La hoja se leyó, pero no devolvió ninguna Pista publicada.");
+  return items;
+}
+
 export function madridDate(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("es-ES", {
+  const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Madrid",
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-  return `${map.year}-${map.month}-${map.day}`;
+  }).formatToParts(date).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-export function getPublishedUntilToday(items, date = new Date()) {
+export function selectTodayPista(items, date = new Date()) {
   const today = madridDate(date);
-  return items.filter((p) => p.fecha <= today);
+  return items.find((p) => p.fecha === today) || items.filter((p) => p.fecha <= today).slice(-1)[0] || items[0] || null;
 }
