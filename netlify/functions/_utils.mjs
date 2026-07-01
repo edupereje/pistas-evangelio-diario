@@ -55,3 +55,21 @@ export function timeMatches(chosen, current) {
   const diff = n - c;
   return diff >= 0 && diff < 15;
 }
+
+// Compatibilidad con notification-diagnostics.mjs que podía quedar en el repositorio anterior.
+// Netlify empaqueta todas las funciones presentes en GitHub; si ese archivo antiguo
+// sigue allí, necesita este export para que el build no falle.
+export function vapidEnv() {
+  const publicKey = process.env.VAPID_PUBLIC_KEY || "";
+  const privateKey = process.env.VAPID_PRIVATE_KEY || "";
+  const subject = process.env.VAPID_SUBJECT || "";
+  return {
+    ok: Boolean(publicKey && privateKey && subject),
+    publicKeyPresent: Boolean(publicKey),
+    privateKeyPresent: Boolean(privateKey),
+    subjectPresent: Boolean(subject),
+    subject,
+    publicKeyLength: publicKey.length,
+    privateKeyLength: privateKey.length
+  };
+}

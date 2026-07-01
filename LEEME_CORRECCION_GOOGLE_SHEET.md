@@ -71,3 +71,7 @@ Solución:
 5. Pégalo en Netlify como variable `PISTAS_SHEET_CSV_URL`.
 6. Vuelve a desplegar o a hacer `Clear cache and deploy site`.
 
+
+## Corrección v8.12
+
+Se añade compatibilidad con `notification-diagnostics.mjs`. Si ese archivo antiguo queda en GitHub, el build ya no falla por el import `vapidEnv`.
