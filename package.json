@@ -1,11 +1,16 @@
 {
-  "name": "pistas-evangelio-v6-notificaciones-reales",
-  "version": "6.0.0",
+  "name": "pistas-evangelio-diario",
+  "version": "8.18.1",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
-    "@netlify/blobs": "latest",
-    "@netlify/functions": "latest",
-    "web-push": "latest"
+    "@netlify/blobs": "8.1.2",
+    "web-push": "3.6.7"
+  },
+  "overrides": {
+    "@netlify/otel": "6.0.4"
   }
 }
