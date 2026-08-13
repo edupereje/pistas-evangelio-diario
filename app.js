@@ -3,11 +3,12 @@ let currentTab = "hoy";
 let selectedFecha = null;
 let deferredPrompt = null;
 
+const APP_VERSION = "8.19.0";
 const APP_URL = "https://pistas-evangelio-diario.netlify.app";
 const DONATION_URL = "https://www.donoamiiglesia.es/san/Home?st=&uri=nm%3Aoid%3AZ6_KP98H380OG7J40QGP8F2L01003#!/donar/21acd17c-ed3e-e611-80e8-005056b101e1";
 const CONTACT_PHONE = "34662519044";
 const CONTENT_API_URL = "/api/pistas";
-const STATIC_FALLBACK_URL = "/data/pistas.json?v=8.14";
+const STATIC_FALLBACK_URL = `/data/pistas.json?v=${APP_VERSION}`;
 const REMEMBER_STEPS = [
   "Pide el Espíritu Santo",
   "Lee despacio y entiende",
@@ -51,7 +52,6 @@ function isLikelyInAppBrowser() {
 }
 
 function todayMadrid() {
-  // Evita problemas entre navegadores: algunos no devuelven en-CA como YYYY-MM-DD.
   const parts = new Intl.DateTimeFormat("es-ES", {
     timeZone: "Europe/Madrid",
     year: "numeric",
@@ -60,6 +60,18 @@ function todayMadrid() {
   }).formatToParts(new Date());
   const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
   return `${map.year}-${map.month}-${map.day}`;
+}
+
+function formatIsoDateLabel(fecha) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fecha || ""))) return String(fecha || "");
+  const [year, month, day] = fecha.split("-").map(Number);
+  const label = new Intl.DateTimeFormat("es-ES", {
+    timeZone: "Europe/Madrid",
+    weekday: "long",
+    day: "numeric",
+    month: "long"
+  }).format(new Date(Date.UTC(year, month - 1, day, 12, 0, 0)));
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function isPastOrToday(fecha) {
@@ -75,14 +87,12 @@ function dayIsAvailable(fecha) {
 }
 
 function getTodayPista() {
-  const requested = new URLSearchParams(location.search).get("fecha");
   const today = todayMadrid();
-  if (requested && dayIsAvailable(requested)) return pistas.find((p) => p.fecha === requested);
-  return pistas.find((p) => p.fecha === today) || availablePistas().slice(-1)[0] || pistas[0] || null;
+  return pistas.find((p) => p.fecha === today && isPastOrToday(p.fecha)) || null;
 }
 
 function getPista(fecha) {
-  return pistas.find((p) => p.fecha === fecha && isPastOrToday(p.fecha)) || getTodayPista();
+  return pistas.find((p) => p.fecha === fecha && isPastOrToday(p.fecha)) || null;
 }
 
 function cleanVapidPublicKey(value) {
@@ -152,7 +162,6 @@ function cleanPistasTextForShare(pistas) {
     .replace(/\r/g, "\n")
     .trim();
 
-  // Evita duplicar el cierre cuando ya viene incluido en la hoja de contenidos.
   const closingPattern = /\n*\s*\*?_?Relee el Evangelio, escucha lo que Dios te dice, respóndele con tu oración y llévalo a tu vida\.?_?\*?\s*$/i;
   while (closingPattern.test(text)) {
     text = text.replace(closingPattern, "").trim();
@@ -173,11 +182,9 @@ function formatShareText(p, includeLink = false) {
 async function init() {
   renderLoading();
   if ("serviceWorker" in navigator) {
-    await navigator.serviceWorker.register("/sw.js?v=8.14");
+    await navigator.serviceWorker.register(`/sw.js?v=${APP_VERSION}`);
   }
 
-  // Cargamos primero una copia local de respaldo para que la app nunca quede vacía
-  // si la función/API tarda, falla o devuelve una respuesta incompleta.
   try {
     pistas = await loadStaticFallback();
   } catch (fallbackError) {
@@ -185,7 +192,6 @@ async function init() {
     pistas = [];
   }
 
-  // Después intentamos actualizar desde Google Sheets a través de Netlify Functions.
   try {
     const remotePistas = await loadPistasFromApi();
     if (Array.isArray(remotePistas) && remotePistas.length > 0) {
@@ -205,11 +211,11 @@ async function init() {
   const params = new URLSearchParams(location.search);
   const requestedFecha = params.get("fecha");
   const requestedRead = params.get("leer") === "1" || params.get("view") === "lectura";
-  if (requestedFecha && dayIsAvailable(requestedFecha)) {
+  if (requestedFecha) {
     selectedFecha = requestedFecha;
     if (requestedRead || params.has("fecha")) currentTab = "lectura";
   } else {
-    selectedFecha = getTodayPista()?.fecha;
+    selectedFecha = getTodayPista()?.fecha || null;
   }
   render();
 }
@@ -232,7 +238,6 @@ async function loadPistasFromApi() {
   if (!items.length) throw new Error("La API respondió correctamente, pero no devolvió ninguna Pista.");
   return items;
 }
-
 
 function hasStartingContent(p) {
   return Boolean(p && p.estoyEmpezando && p.estoyEmpezando.trim().length > 0);
@@ -409,7 +414,6 @@ async function activateNotifications() {
 
   try {
     const config = await getNotificationConfig();
-    // Siempre renovamos la suscripción. Así evitamos el error 403 cuando han cambiado las claves VAPID.
     const subscription = await createFreshSubscription(config.publicKey);
     await registerSubscriptionOnServer(subscription, time);
 
@@ -532,8 +536,6 @@ function whatsappPista(p) {
 
 async function shareWhatsappPista(p) {
   const text = formatShareText(p, true);
-  // Usamos enlace directo de WhatsApp para que el cuadro de chat se abra con
-  // el texto completo ya preparado en formato WhatsApp-ready.
   const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
   window.open(url, "_blank", "noopener,noreferrer");
 }
@@ -549,19 +551,17 @@ function contactMail(p) {
 }
 
 function extractHighlight(p) {
-  const source = `${p.evangelio}\n${p.pistas}`;
-  const quoted = source.match(/[«“\"]([^»”\"]{8,70})[»”\"]/);
-  if (quoted && quoted[1]) return `“${quoted[1].trim()}”`;
-  return p.cita;
+  const text = String(p?.notificacionTitulo || "")
+    .trim()
+    .replace(/^[«“\"]+/, "")
+    .replace(/[»”\"]+$/, "")
+    .trim();
+  return text ? `“${text}”` : "";
 }
 
 function render() {
   const app = document.getElementById("app");
   const today = getTodayPista();
-  if (!today) {
-    renderError("Todavía no hay ninguna Pista publicada en la hoja de contenidos.");
-    return;
-  }
   const state = notificationState();
   app.innerHTML = `<div class="app">
     <header class="header">
@@ -574,10 +574,48 @@ function render() {
 }
 
 function renderMain(today, state) {
-  if (currentTab === "lectura") return renderLectura(getPista(selectedFecha));
+  if (currentTab === "lectura") {
+    const selected = getPista(selectedFecha);
+    return selected ? renderLectura(selected) : renderDateUnavailable(selectedFecha);
+  }
   if (currentTab === "archivo") return renderArchivo();
   if (currentTab === "ajustes") return renderAjustes(state);
-  return renderHoy(today, state);
+  return today ? renderHoy(today, state) : renderTodayUnavailable();
+}
+
+function renderTodayUnavailable() {
+  const today = todayMadrid();
+  const latest = availablePistas().slice(-1)[0] || null;
+  return `<section>
+    <div class="card hero">
+      <div class="eyebrow">Pista de hoy</div>
+      <h1 class="h1">Todavía no está disponible</h1>
+      <p class="muted">La Pista correspondiente a <strong>${escapeHtml(formatIsoDateLabel(today))}</strong> aún no está publicada. No mostramos una Pista anterior como si fuera la de hoy.</p>
+      <div class="button-row">
+        <button class="button" onclick="location.reload()">Volver a comprobar</button>
+        <button class="button secondary" onclick="setTab('archivo')">Abrir archivo</button>
+      </div>
+      ${latest ? `<p class="source-note">La última Pista disponible es ${escapeHtml(latest.titulo)}.</p>` : ""}
+    </div>
+    ${renderHowToUseButtonCard()}
+    ${renderDonateCard()}
+  </section>`;
+}
+
+function renderDateUnavailable(fecha) {
+  const label = formatIsoDateLabel(fecha);
+  return `<section>
+    <button class="button secondary back" onclick="goHome()">← Volver</button>
+    <div class="card hero" style="margin-top:14px">
+      <div class="eyebrow">Contenido no disponible</div>
+      <h1 class="h1">${escapeHtml(label || "Pista no disponible")}</h1>
+      <p class="muted">No hay una Pista publicada para esta fecha. Puedes volver a hoy o buscar otra en el archivo.</p>
+      <div class="button-row">
+        <button class="button" onclick="goHome()">Ir a hoy</button>
+        <button class="button secondary" onclick="setTab('archivo')">Abrir archivo</button>
+      </div>
+    </div>
+  </section>`;
 }
 
 function renderHoy(p, state) {
@@ -586,16 +624,13 @@ function renderHoy(p, state) {
   const showInstall = !installed && !installDismissed;
   const showPrayer = installed && !state.active;
   const highlight = extractHighlight(p);
-  const today = todayMadrid();
-  const exactToday = p.fecha === today;
 
   return `<section>
     ${showInstall ? renderInstallCard() : ""}
     <div class="card hero">
-      <div class="eyebrow">${exactToday ? "Pista de hoy" : "Última Pista publicada"}</div>
-      ${!exactToday ? `<div class="source-note">Hoy es ${today}. Todavía no hay una Pista publicada para esa fecha; mostramos la última disponible.</div>` : ""}
+      <div class="eyebrow">Pista de hoy</div>
       <h1 class="h1">${p.titulo}</h1>
-      <div class="quote">${escapeHtml(highlight)}</div>
+      ${highlight ? `<div class="quote">${escapeHtml(highlight)}</div>` : ""}
       <div class="muted">${p.celebracion}</div>
       <div class="pill">${p.cita}</div>
       <a class="button" style="margin-top:16px" href="?fecha=${p.fecha}&leer=1" onclick="event.preventDefault(); openPista('${p.fecha}')">Leer la Pista de hoy</a>
@@ -658,11 +693,12 @@ function renderPrayerCard(inSettings) {
 function renderLectura(p) {
   const starting = hasStartingContent(p);
   const image = hasImage(p);
+  const highlight = extractHighlight(p);
   return `<article>
     <button class="button secondary back" onclick="goHome()">← Volver</button>
     <div class="card hero" style="margin-top:14px">
       <h1 class="h1">${p.titulo}</h1>
-      <div class="quote">${escapeHtml(extractHighlight(p))}</div>
+      ${highlight ? `<div class="quote">${escapeHtml(highlight)}</div>` : ""}
       <div class="muted">${p.celebracion}</div>
       <div class="pill">${p.cita}</div>
     </div>
@@ -828,23 +864,24 @@ async function shareImageByDate(fecha) {
   if (!hasImage(p)) return;
   await shareText(
     `Imagen del día — ${p.titulo}`,
-    `${p.titulo}
-${p.celebracion}
-${p.cita}`,
+    `${p.titulo}\n${p.celebracion}\n${p.cita}`,
     p.imagenDiaUrl
   );
 }
 
 function sharePistaByDate(fecha) {
-  sharePista(getPista(fecha));
+  const p = getPista(fecha);
+  if (p) sharePista(p);
 }
 
 function shareWhatsappPistaByDate(fecha) {
-  shareWhatsappPista(getPista(fecha));
+  const p = getPista(fecha);
+  if (p) shareWhatsappPista(p);
 }
 
 function copyPistaByDate(fecha) {
-  copyPista(getPista(fecha));
+  const p = getPista(fecha);
+  if (p) copyPista(p);
 }
 
 window.setTab = setTab;
