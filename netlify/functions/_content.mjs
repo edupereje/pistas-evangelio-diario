@@ -224,6 +224,7 @@ export function madridDate(date = new Date()) {
 }
 
 export function selectTodayPista(items, date = new Date()) {
+  if (!Array.isArray(items)) throw new TypeError("Las Pistas deben ser una lista");
   const today = madridDate(date);
-  return items.find((p) => p.fecha === today) || items.filter((p) => p.fecha <= today).slice(-1)[0] || items[0] || null;
+  return items.find((p) => p.fecha === today && (p.publicar === undefined || normalizePublicar(p.publicar))) || null;
 }

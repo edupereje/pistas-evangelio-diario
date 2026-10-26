@@ -1,4 +1,4 @@
-const APP_VERSION = "8.19.0";
+const APP_VERSION = "8.19.1";
 const CACHE_NAME = `pistas-v${APP_VERSION}`;
 const APP_SHELL = [
   "/",
@@ -55,6 +55,7 @@ self.addEventListener("push", (event) => {
     body: data.body,
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
+    tag: data.tag,
     data: { url: data.url || "/" }
   }));
 });

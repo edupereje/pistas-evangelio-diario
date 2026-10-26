@@ -9,6 +9,6 @@ export async function loadPistas() {
   }
 }
 
-export function getTodayPista(items = []) {
-  return selectTodayPista(items);
+export function getTodayPista(items = [], date = new Date()) {
+  return selectTodayPista(items, date);
 }

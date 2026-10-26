@@ -2,8 +2,9 @@ let pistas = [];
 let currentTab = "hoy";
 let selectedFecha = null;
 let deferredPrompt = null;
+let notificationPreferenceUpdate = Promise.resolve();
 
-const APP_VERSION = "8.19.0";
+const APP_VERSION = "8.19.1";
 const APP_URL = "https://pistas-evangelio-diario.netlify.app";
 const DONATION_URL = "https://www.donoamiiglesia.es/san/Home?st=&uri=nm%3Aoid%3AZ6_KP98H380OG7J40QGP8F2L01003#!/donar/21acd17c-ed3e-e611-80e8-005056b101e1";
 const CONTACT_PHONE = "34662519044";
@@ -356,18 +357,16 @@ async function getNotificationConfig() {
   return { publicKey: cleanVapidPublicKey(config.publicKey) };
 }
 
-async function createFreshSubscription(publicKey) {
+async function getOrCreateSubscription(publicKey) {
   const registration = await navigator.serviceWorker.ready;
   const existing = await registration.pushManager.getSubscription();
   if (existing) {
-    try {
-      await fetch("/api/unsubscribe", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ endpoint: existing.endpoint })
-      });
-    } catch (_) {}
-    try { await existing.unsubscribe(); } catch (_) {}
+    const expected = urlBase64ToUint8Array(publicKey);
+    const actual = existing.options?.applicationServerKey;
+    if (actual && (actual.byteLength !== expected.length || new Uint8Array(actual).some((value, i) => value !== expected[i]))) {
+      throw new Error("La suscripción utiliza otra configuración. Desactiva y vuelve a activar los avisos.");
+    }
+    return existing;
   }
   return await registration.pushManager.subscribe({
     userVisibleOnly: true,
@@ -389,9 +388,6 @@ async function registerSubscriptionOnServer(subscription, time) {
 }
 
 async function activateNotifications() {
-  const time = document.querySelector("#timeInput")?.value || prayerTime();
-  setPrayerTime(time);
-
   if (!isStandalone()) {
     alert("Primero instala la app y ábrela desde el icono de la pantalla de inicio. Así podremos activar correctamente el aviso diario.");
     currentTab = "ajustes";
@@ -404,45 +400,67 @@ async function activateNotifications() {
     return;
   }
 
-  const permission = await Notification.requestPermission();
-  if (permission !== "granted") {
-    saveNotificationState({ active: false, permission });
-    alert("No se han autorizado las notificaciones. Puedes activarlas después desde los ajustes del navegador o del móvil.");
-    render();
-    return;
-  }
-
-  try {
+  // Request permission during the click; queue persistence in selection order.
+  const permissionRequest = Notification.requestPermission().catch(() => "default");
+  notificationPreferenceUpdate = notificationPreferenceUpdate.then(async () => {
+    const time = prayerTime();
+    if (!validPrayerTime(time)) {
+      alert("Elige una hora entre las 00:00 y las 23:45. El aviso puede llegar en los 15 minutos siguientes.");
+      return;
+    }
+    const permission = await permissionRequest;
+    if (permission !== "granted") {
+      saveNotificationState({ active: false, permission });
+      alert("No se han autorizado las notificaciones. Puedes activarlas después desde los ajustes del navegador o del móvil.");
+      render();
+      return;
+    }
     const config = await getNotificationConfig();
-    const subscription = await createFreshSubscription(config.publicKey);
+    const subscription = await getOrCreateSubscription(config.publicKey);
     await registerSubscriptionOnServer(subscription, time);
 
+    setPrayerTime(time);
     saveNotificationState({ active: true, time, permission: "granted", mode: "real", refreshedAt: new Date().toISOString() });
     alert(`Aviso diario activado a las ${time}.`);
     render();
-  } catch (error) {
+  }).catch((error) => {
     console.error(error);
     alert(`No se pudieron activar las notificaciones: ${error.message}`);
-  }
+  });
+  return notificationPreferenceUpdate;
 }
 
 async function deactivateNotifications() {
-  try {
-    const subscription = await getActiveSubscription();
-    if (subscription) {
-      await fetch("/api/unsubscribe", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ endpoint: subscription.endpoint })
-      });
-      await subscription.unsubscribe();
+  notificationPreferenceUpdate = notificationPreferenceUpdate.then(async () => {
+    const previous = notificationState();
+    let subscription;
+    try {
+      subscription = await getActiveSubscription();
+      if (subscription) {
+        const response = await fetch("/api/unsubscribe", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ endpoint: subscription.endpoint })
+        });
+        if (!response.ok) throw new Error("No se pudo desactivar el aviso en el servidor");
+      }
+    } catch {
+      alert("No se pudo desactivar el aviso. Vuelve a intentarlo con conexión.");
+      render();
+      return;
     }
-  } catch (error) {
-    console.warn("No se pudo eliminar la suscripción remota", error);
-  }
-  saveNotificationState({ active: false, time: prayerTime(), permission: Notification?.permission || "default" });
-  alert("Notificaciones desactivadas en la app.");
-  render();
+    saveNotificationState({ ...previous, active: false, time: prayerTime(), permission: globalThis.Notification?.permission || "default" });
+    let localCleanupFailed = false;
+    if (subscription) {
+      try { await subscription.unsubscribe(); }
+      catch { localCleanupFailed = true; }
+    }
+    alert(localCleanupFailed
+      ? "El aviso diario se ha desactivado. El navegador no pudo limpiar la suscripción local."
+      : "Notificaciones desactivadas en la app.");
+    render();
+  });
+  return notificationPreferenceUpdate;
 }
 
 async function sendTestNotificationRequest(subscription) {
@@ -458,11 +476,6 @@ async function sendTestNotificationRequest(subscription) {
   }
 }
 
-function isOldVapidSubscriptionError(error) {
-  const text = String(error?.message || error || "");
-  return /VAPID credentials|authorization header|credentials used to create the subscriptions|403/i.test(text);
-}
-
 async function sendLocalTestNotification() {
   if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
     alert("Este dispositivo no admite notificaciones push web.");
@@ -475,22 +488,13 @@ async function sendLocalTestNotification() {
   }
 
   try {
-    let subscription = await getActiveSubscription();
+    const subscription = await getActiveSubscription();
     if (!subscription) {
       alert("No hay una suscripción activa. Pulsa primero ‘Activar notificaciones’. ");
       return;
     }
 
-    try {
-      await sendTestNotificationRequest(subscription);
-    } catch (error) {
-      if (!isOldVapidSubscriptionError(error)) throw error;
-      const config = await getNotificationConfig();
-      subscription = await createFreshSubscription(config.publicKey);
-      await registerSubscriptionOnServer(subscription, prayerTime());
-      saveNotificationState({ active: true, time: prayerTime(), permission: "granted", mode: "real", refreshedAt: new Date().toISOString() });
-      await sendTestNotificationRequest(subscription);
-    }
+    await sendTestNotificationRequest(subscription);
 
     alert("Notificación de prueba enviada.");
   } catch (error) {
@@ -668,9 +672,12 @@ function renderInstallCard() {
 }
 
 function renderPrayerSummary(state) {
+  const time = state.time || prayerTime();
   return `<div class="card">
     <div class="eyebrow">Tiempo de oración programado</div>
-    <p class="muted">Recibirás el aviso diario a las <strong>${state.time || prayerTime()}</strong>. Puedes cambiarlo o desactivarlo en Ajustes.</p>
+    ${validPrayerTime(time)
+      ? `<p class="muted">Recibirás el aviso diario desde las <strong>${time}</strong>, dentro de los 15 minutos siguientes. Puedes cambiarlo o desactivarlo en Ajustes.</p>`
+      : `<p class="muted">La hora guardada necesita actualizarse. Elige en Ajustes una hora entre las 00:00 y las 23:45.</p>`}
     <button class="button secondary" onclick="setTab('ajustes')">Cambiar en Ajustes</button>
   </div>`;
 }
@@ -683,7 +690,7 @@ function renderPrayerCard(inSettings) {
     <p class="muted">Es importante reservar un momento concreto para escuchar la Palabra de Dios. Elige a qué hora quieres recibir cada día una llamada sencilla para rezar con el Evangelio.</p>
     <div class="time-grid">${times.map((x) => `<button class="${t === x ? "active" : ""}" onclick="chooseTime('${x}')">${x}</button>`).join("")}</div>
     <label class="label" for="timeInput">Elegir otra hora</label>
-    <input id="timeInput" class="time-input" type="time" step="900" value="${t}" onchange="chooseTime(this.value)">
+    <input id="timeInput" class="time-input" type="time" step="900" max="23:45" value="${t}" onchange="chooseTime(this.value)">
     <button class="button" style="margin-top:12px" onclick="activateNotifications()">Activar notificaciones</button>
     ${inSettings ? `<button class="button secondary" style="margin-top:10px" onclick="sendLocalTestNotification()">Probar notificación</button>` : ""}
     <div class="status">Al activar las notificaciones se guardará una suscripción técnica del dispositivo y la hora elegida. El aviso diario se enviará automáticamente cuando el servidor esté configurado.</div>
@@ -833,11 +840,34 @@ function openPista(fecha) {
   render();
 }
 
+function validPrayerTime(value) {
+  return typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) && value <= "23:45";
+}
+
 function chooseTime(value) {
-  setPrayerTime(value);
-  const state = notificationState();
-  if (state.active) saveNotificationState({ ...state, time: value });
-  render();
+  if (!validPrayerTime(value)) {
+    alert("Elige una hora entre las 00:00 y las 23:45. El aviso puede llegar en los 15 minutos siguientes.");
+    render();
+    return Promise.resolve();
+  }
+  notificationPreferenceUpdate = notificationPreferenceUpdate.then(async () => {
+    if (!notificationState().active) {
+      setPrayerTime(value);
+      render();
+      return;
+    }
+    const subscription = await getActiveSubscription();
+    if (!subscription) throw new Error("No hay una suscripción activa");
+    await registerSubscriptionOnServer(subscription, value);
+    if (!notificationState().active) return;
+    setPrayerTime(value);
+    saveNotificationState({ ...notificationState(), time: value });
+    render();
+  }).catch(() => {
+    alert("No se pudo guardar la nueva hora. Se mantiene la anterior. Vuelve a intentarlo con conexión.");
+    render();
+  });
+  return notificationPreferenceUpdate;
 }
 
 function setReadMode(mode) {
