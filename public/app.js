@@ -1,10 +1,17 @@
+import { createStudyClient } from "./study-client.js?v=8.20.0";
+import { renderStudyMarkdown } from "./study-markdown.js?v=8.20.0";
+
 let pistas = [];
 let currentTab = "hoy";
 let selectedFecha = null;
 let deferredPrompt = null;
 let notificationPreferenceUpdate = Promise.resolve();
 
-const APP_VERSION = "8.19.1";
+const APP_VERSION = "8.20.0";
+const studyClient = createStudyClient((...args) => fetch(...args));
+const studySummaries = new Map();
+let studyView = null;
+let studyRequest = 0;
 const APP_URL = "https://pistas-evangelio-diario.netlify.app";
 const DONATION_URL = "https://www.donoamiiglesia.es/san/Home?st=&uri=nm%3Aoid%3AZ6_KP98H380OG7J40QGP8F2L01003#!/donar/21acd17c-ed3e-e611-80e8-005056b101e1";
 const CONTACT_PHONE = "34662519044";
@@ -183,7 +190,11 @@ function formatShareText(p, includeLink = false) {
 async function init() {
   renderLoading();
   if ("serviceWorker" in navigator) {
-    await navigator.serviceWorker.register(`/sw.js?v=${APP_VERSION}`);
+    try {
+      await navigator.serviceWorker.register(`/sw.js?v=${APP_VERSION}`);
+    } catch (error) {
+      console.warn("No se pudo preparar el acceso sin conexión; se mantiene la lectura en línea.", error);
+    }
   }
 
   try {
@@ -217,6 +228,10 @@ async function init() {
     if (requestedRead || params.has("fecha")) currentTab = "lectura";
   } else {
     selectedFecha = getTodayPista()?.fecha || null;
+  }
+  if (requestedFecha && params.get("estudio") === "1" && getPista(requestedFecha)) {
+    await openStudy(requestedFecha);
+    return;
   }
   render();
 }
@@ -575,9 +590,12 @@ function render() {
     <main class="main">${renderMain(today, state)}</main>
     ${renderNav()}
   </div>`;
+  const visiblePista = currentTab === "lectura" ? getPista(selectedFecha) : currentTab === "hoy" ? today : null;
+  if (visiblePista) void checkStudySummary(visiblePista.fecha);
 }
 
 function renderMain(today, state) {
+  if (currentTab === "estudio") return renderStudy();
   if (currentTab === "lectura") {
     const selected = getPista(selectedFecha);
     return selected ? renderLectura(selected) : renderDateUnavailable(selectedFecha);
@@ -639,6 +657,7 @@ function renderHoy(p, state) {
       <div class="pill">${p.cita}</div>
       <a class="button" style="margin-top:16px" href="?fecha=${p.fecha}&leer=1" onclick="event.preventDefault(); openPista('${p.fecha}')">Leer la Pista de hoy</a>
     </div>
+    ${renderStudyEntry(p)}
     ${showPrayer ? renderPrayerCard(false) : state.active ? renderPrayerSummary(state) : ""}
     <div class="button-row">
       <button class="button secondary" onclick="sharePistaByDate('${p.fecha}')">Compartir</button>
@@ -712,6 +731,7 @@ function renderLectura(p) {
     ${renderRememberCard(true)}
     <section class="card"><h2 class="section-title">${p.evangelioTitulo}</h2><div class="text">${escapeHtml(p.evangelio)}</div></section>
     ${starting ? renderContentSwitcher(p) : `<section class="card pistas-card"><h2 class="section-title">Pistas</h2><div class="text">${escapeHtml(cleanPistasTextForShare(p.pistas))}</div></section>`}
+    ${renderStudyEntry(p)}
     ${image ? `<div class="card image-card"><h2 class="section-title">Imagen del día</h2><p class="muted">Una síntesis visual para recordar y compartir la Palabra de hoy.</p><button class="button soft" onclick="showDailyImage('${p.fecha}')">Ver imagen del día</button></div>` : ""}
     <div class="card closing">${CLOSING_TEXT}</div>
     <div class="card"><h2 class="section-title">Compartir o guardar</h2><div class="button-row"><button class="button" onclick="sharePistaByDate('${p.fecha}')">Compartir</button><button class="button secondary" onclick="copyPistaByDate('${p.fecha}')">Copiar</button></div><button class="button secondary" style="margin-top:10px" onclick="shareWhatsappPistaByDate('${p.fecha}')">Compartir por WhatsApp</button></div>
@@ -732,6 +752,57 @@ function renderContentSwitcher(p) {
     <h2 class="section-title">${showStarting ? "Estoy empezando" : "Pistas"}</h2>
     <div class="text">${escapeHtml(showStarting ? p.estoyEmpezando : cleanPistasTextForShare(p.pistas))}</div>
   </section>`;
+}
+
+function studyEntryContent(fecha) {
+  if (studySummaries.get(fecha)?.status !== "ready") return "";
+  return `<section class="card study-entry"><h2 class="section-title">Profundiza en el Evangelio</h2><p class="muted">Un estudio bíblico del pasaje para comprenderlo y rezar con él.</p><button class="button secondary" onclick="openStudy('${fecha}')">Leer el estudio bíblico</button></section>`;
+}
+
+function renderStudyEntry(p) {
+  return `<div id="study-entry" data-fecha="${escapeHtml(p.fecha)}">${studyEntryContent(p.fecha)}</div>`;
+}
+
+async function checkStudySummary(fecha) {
+  if (studySummaries.has(fecha)) return;
+  studySummaries.set(fecha, { status: "loading" });
+  const result = await studyClient.summary(fecha);
+  studySummaries.set(fecha, result);
+  const entry = document.getElementById("study-entry");
+  if (entry?.getAttribute("data-fecha") === fecha) entry.innerHTML = studyEntryContent(fecha);
+}
+
+async function openStudy(fecha) {
+  if (!getPista(fecha)) return;
+  const request = ++studyRequest;
+  selectedFecha = fecha;
+  currentTab = "estudio";
+  studyView = { fecha, status: "loading" };
+  history.replaceState(null, "", `?fecha=${encodeURIComponent(fecha)}&estudio=1`);
+  render();
+  window.scrollTo(0, 0);
+  const result = await studyClient.read(fecha);
+  if (request !== studyRequest || currentTab !== "estudio" || selectedFecha !== fecha) return;
+  studyView = { fecha, ...result };
+  if (result.status === "missing") studySummaries.set(fecha, result);
+  render();
+  document.getElementById("study-title")?.focus({ preventScroll: true });
+}
+
+function renderStudy() {
+  const p = getPista(selectedFecha);
+  if (!p) return renderDateUnavailable(selectedFecha);
+  const back = `<button class="button secondary back" onclick="openPista('${p.fecha}')">← Volver a las Pistas</button>`;
+  const view = studyView;
+  if (!view || view.fecha !== p.fecha || view.status === "loading") {
+    return `<section>${back}<div class="card study-message" role="status" aria-live="polite"><h1 id="study-title" class="section-title" tabindex="-1">Abriendo el estudio bíblico</h1><p class="muted">Un momento, por favor.</p></div></section>`;
+  }
+  if (view.status !== "ready") {
+    const missing = view.status === "missing";
+    return `<section>${back}<div class="card study-message"><h1 id="study-title" class="section-title" tabindex="-1">${missing ? "Estudio no disponible" : "No se pudo abrir el estudio"}</h1><p class="muted">${missing ? "Por ahora no hay un estudio publicado para este Evangelio. Puedes continuar rezando con las Pistas." : "Comprueba la conexión y vuelve a intentarlo. Las Pistas siguen disponibles."}</p>${missing ? "" : `<button class="button secondary" onclick="openStudy('${p.fecha}')">Volver a intentarlo</button>`}</div></section>`;
+  }
+  const item = view.item;
+  return `<article>${back}<section class="card study-article"><div class="eyebrow">Profundiza en el Evangelio</div><h1 id="study-title" class="h1" tabindex="-1">${escapeHtml(item.titulo)}</h1><p class="study-date muted">${escapeHtml(p.titulo)} · ${escapeHtml(item.cita)}</p><div class="study-markdown">${renderStudyMarkdown(item.contenidoMarkdown, item.titulo)}</div></section><button class="button secondary" onclick="openPista('${p.fecha}')">Volver a las Pistas</button></article>`;
 }
 
 function renderRememberCard(compact = false) {
@@ -814,7 +885,7 @@ function renderHowToUseContent() {
 
 function renderNav() {
   return `<nav class="nav">
-    <button class="${currentTab === "hoy" || currentTab === "lectura" ? "active" : ""}" onclick="setTab('hoy')">Hoy</button>
+    <button class="${["hoy", "lectura", "estudio"].includes(currentTab) ? "active" : ""}" onclick="setTab('hoy')">Hoy</button>
     <button class="${currentTab === "archivo" ? "active" : ""}" onclick="setTab('archivo')">Archivo</button>
     <button onclick="recommendApp()">Recomendar</button>
     <button class="${currentTab === "ajustes" ? "active" : ""}" onclick="setTab('ajustes')">Ajustes</button>
@@ -822,18 +893,24 @@ function renderNav() {
 }
 
 function setTab(tab) {
+  studyRequest++;
+  studyView = null;
   currentTab = tab;
   if (tab !== "lectura") history.replaceState(null, "", "/");
   render();
 }
 
 function goHome() {
+  studyRequest++;
+  studyView = null;
   currentTab = "hoy";
   history.replaceState(null, "", "/");
   render();
 }
 
 function openPista(fecha) {
+  studyRequest++;
+  studyView = null;
   selectedFecha = fecha;
   currentTab = "lectura";
   history.replaceState(null, "", `?fecha=${fecha}`);
@@ -917,6 +994,7 @@ function copyPistaByDate(fecha) {
 window.setTab = setTab;
 window.goHome = goHome;
 window.openPista = openPista;
+window.openStudy = openStudy;
 window.installApp = installApp;
 window.showInstallHelp = showInstallHelp;
 window.dismissInstall = dismissInstall;

@@ -39,6 +39,10 @@ Conserva las claves configuradas en Netlify. No guardes sus valores en el reposi
 
 El envío diario real lo ejecuta `netlify/functions/send-daily.mjs` cada 15 minutos.
 
+## Estudios bíblicos
+
+La preparación del servicio independiente de estudios y sus condiciones de activación están documentadas en [docs/ESTUDIOS_API.md](docs/ESTUDIOS_API.md). El servicio queda desactivado hasta configurar expresamente su fuente pública; el contrato de Pistas se conserva.
+
 ## Reparación de notificaciones: validación local
 
 `npm ci --ignore-scripts` instala las versiones fijadas y `npm test` ejecuta las pruebas con Node.js 22. Las pruebas sustituyen el proveedor push y Netlify Blobs por objetos en memoria; no envían avisos ni leen suscripciones reales. El build de Netlify ejecuta estas pruebas antes de publicar.
