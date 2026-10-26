@@ -43,7 +43,43 @@ export function madridParts(date = new Date()) {
   };
 }
 
-export function timeMatches(chosen, current) {
+export function validNotificationTime(value) {
+  return typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) && value <= "23:45";
+}
+
+// Resolve the chosen wall time using Madrid's real offsets. In autumn use the
+// first occurrence; a missing spring time moves to the first valid minute.
+export function madridScheduledTime(chosen, date) {
+  if (!validNotificationTime(chosen)) return null;
+  const day = madridParts(date).date;
+  const target = `${day}T${chosen}`;
+  const nominal = Date.parse(`${target}:00Z`);
+  const offsets = new Set([-12, 0, 12].map((hours) => {
+    const probe = nominal + hours * 3600000;
+    const local = madridParts(new Date(probe));
+    return Date.parse(`${local.date}T${local.time}:00Z`) - probe;
+  }));
+  const candidates = [...offsets].map((offset) => nominal - offset).sort((a, b) => a - b);
+  const localStamp = (instant) => {
+    const local = madridParts(new Date(instant));
+    return `${local.date}T${local.time}`;
+  };
+  const exact = candidates.find((instant) => localStamp(instant) === target);
+  if (exact !== undefined) return new Date(exact);
+  if (candidates.length < 2) return null;
+  for (let instant = candidates[0]; instant <= candidates.at(-1); instant += 60000) {
+    if (localStamp(instant) >= target) return new Date(instant);
+  }
+  return null;
+}
+
+export function timeMatches(chosen, current, date) {
+  if (!validNotificationTime(chosen) || typeof current !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(current)) return false;
+  if (date) {
+    const scheduled = madridScheduledTime(chosen, date);
+    const diff = scheduled ? date.getTime() - scheduled.getTime() : -1;
+    return diff >= 0 && diff < 15 * 60000;
+  }
   const toMinutes = (value) => {
     const [h, m] = String(value || "").split(":").map(Number);
     if (!Number.isFinite(h) || !Number.isFinite(m)) return null;

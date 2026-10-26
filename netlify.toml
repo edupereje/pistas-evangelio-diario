@@ -1,6 +1,10 @@
 [build]
+  command = "npm test"
   publish = "public"
   functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
 
 [functions]
   node_bundler = "esbuild"

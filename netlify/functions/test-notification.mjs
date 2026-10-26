@@ -1,27 +1,23 @@
 import webpush from "web-push";
 import { json, options } from "./_utils.mjs";
+import { setupVapid, readEnv, validSubscription } from "./_push.mjs";
 
-function setupVapid() {
-  const publicKey = Netlify.env.get("VAPID_PUBLIC_KEY") || process.env.VAPID_PUBLIC_KEY;
-  const privateKey = Netlify.env.get("VAPID_PRIVATE_KEY") || process.env.VAPID_PRIVATE_KEY;
-  const subject = Netlify.env.get("VAPID_SUBJECT") || process.env.VAPID_SUBJECT || "mailto:info@example.com";
-  if (!publicKey || !privateKey) throw new Error("Faltan claves VAPID");
-  webpush.setVapidDetails(subject, publicKey, privateKey);
+export function createTestNotification({ push = webpush, env = readEnv } = {}) {
+  return async function handler(req) {
+    if (req.method === "OPTIONS") return options();
+    if (req.method !== "POST") return json({ error: "Método no permitido" }, 405);
+    const body = await req.json().catch(() => null);
+    if (!validSubscription(body?.subscription)) return json({ error: "Suscripción no válida" }, 400);
+    try {
+      setupVapid(push, env);
+      await push.sendNotification(body.subscription, JSON.stringify({
+        title: "Pistas del Evangelio", body: "Notificación de prueba activada correctamente.", url: "/"
+      }));
+      return json({ ok: true });
+    } catch (error) {
+      const gone = [404, 410].includes(Number(error?.statusCode || error?.status));
+      return json({ error: gone ? "La suscripción ha caducado. Desactiva y vuelve a activar los avisos." : "No se pudo enviar la prueba. Revisa la configuración de avisos." }, gone ? 410 : 502);
+    }
+  };
 }
-
-export default async function handler(req) {
-  if (req.method === "OPTIONS") return options();
-  if (req.method !== "POST") return json({ error: "Método no permitido" }, 405);
-  setupVapid();
-  const body = await req.json().catch(() => null);
-  if (!body?.subscription) return json({ error: "Falta subscription" }, 400);
-
-  const payload = JSON.stringify({
-    title: "Pistas del Evangelio",
-    body: "Notificación de prueba activada correctamente.",
-    url: "/"
-  });
-
-  await webpush.sendNotification(body.subscription, payload);
-  return json({ ok: true });
-}
+export default createTestNotification();
