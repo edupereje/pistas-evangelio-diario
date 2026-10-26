@@ -11,7 +11,7 @@ Incluye backend de notificaciones reales con Netlify Functions, Netlify Blobs y 
 3. Conecta el repositorio con Netlify.
 4. En Netlify, configura:
 
-- Build command: dejar vacío
+- Build command: `npm test` con Node.js 22
 - Publish directory: `public`
 - Functions directory: `netlify/functions`
 
@@ -25,7 +25,7 @@ En Netlify añade estas variables desde Site configuration → Environment varia
 - `VAPID_PRIVATE_KEY`
 - `VAPID_SUBJECT`
 
-Las claves están en `docs/VAPID_KEYS_NETLIFY_ENV.txt`. No publiques la clave privada.
+Conserva las claves configuradas en Netlify; no incluyas sus valores en el repositorio.
 
 ## Prueba
 
@@ -38,3 +38,9 @@ Las claves están en `docs/VAPID_KEYS_NETLIFY_ENV.txt`. No publiques la clave pr
 7. Comprueba que llega.
 
 El envío diario real lo ejecuta `netlify/functions/send-daily.mjs` cada 15 minutos.
+
+## Estudios bíblicos
+
+El importador de producción ya acepta el perfil extendido y se probó desde la interfaz de Eduardo. Guarda A en el libro privado y exporta únicamente estudios aprobados para fechas que ya han llegado. La A del día 27 sigue privada con `publicar=no`; la exportación pública solo tiene la cabecera.
+
+La app 8.20.0 de esta rama está preparada y probada localmente, pendiente de despliegue y configuración de `PISTAS_ESTUDIOS_CSV_URL`. Su servicio independiente y las condiciones de activación están documentados en [docs/ESTUDIOS_API.md](docs/ESTUDIOS_API.md). Se conserva el contrato de Pistas. Esta rama no integra la reparación de notificaciones.
