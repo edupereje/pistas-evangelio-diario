@@ -1,10 +1,12 @@
-const APP_VERSION = "8.19.0";
+const APP_VERSION = "8.20.0";
 const CACHE_NAME = `pistas-v${APP_VERSION}`;
 const APP_SHELL = [
   "/",
   "/index.html",
   `/styles.css?v=${APP_VERSION}`,
   `/app.js?v=${APP_VERSION}`,
+  `/study-client.js?v=${APP_VERSION}`,
+  `/study-markdown.js?v=${APP_VERSION}`,
   `/manifest.webmanifest?v=${APP_VERSION}`,
   "/icons/icon-192.png"
 ];
