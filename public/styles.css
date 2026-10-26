@@ -49,3 +49,22 @@ body{margin:0;background:var(--bg);font-family:Aptos,Inter,ui-sans-serif,system-
   text-align: left;
 }
 .title-button:active { opacity: .75; }
+.study-entry{border-color:#dfdcff;background:linear-gradient(145deg,#fff,#f7f5ff)}
+.study-message,.study-article{margin-top:14px}
+.study-article .h1{font-size:26px;line-height:1.22;overflow-wrap:anywhere}
+.study-date{font-size:14px;margin:12px 0 24px}
+.study-markdown{font-size:17px;line-height:1.82;overflow-wrap:anywhere}
+.study-markdown p{margin:0 0 1.2em}
+.study-markdown h2{font-size:21px;line-height:1.35;margin:1.8em 0 .8em;letter-spacing:-.025em}
+.study-markdown h3,.study-markdown h4,.study-markdown h5,.study-markdown h6{font-size:18px;line-height:1.45;margin:1.5em 0 .7em}
+.study-markdown ul,.study-markdown ol{padding-left:24px;margin:0 0 1.3em}
+.study-markdown li{margin-bottom:.65em}
+.study-markdown a{color:var(--primary-dark);text-decoration:underline;text-underline-offset:3px}
+.study-markdown blockquote{margin:1.2em 0;padding:4px 16px;border-left:3px solid var(--primary);color:var(--muted)}
+.study-markdown pre{white-space:pre-wrap;font-size:14px;border:1px solid var(--line);border-radius:12px;padding:12px;overflow:auto}
+.study-table{max-width:100%;overflow:auto;border:1px solid var(--line);border-radius:12px;margin:1.2em 0;font-size:14px}
+.study-table table{border-collapse:collapse;width:100%;min-width:320px;line-height:1.6}
+.study-table th,.study-table td{padding:10px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+.study-table th{background:var(--surface-2);font-weight:750}
+.study-table tr:last-child td{border-bottom:0}
+.study-table:focus-visible,.study-article a:focus-visible{outline:3px solid var(--primary);outline-offset:2px}

@@ -26,11 +26,12 @@ export function publicSourceInfo() {
   };
 }
 
-function parseCsv(text) {
+export function parseCsv(text, { strict = false } = {}) {
   const rows = [];
   let row = [];
   let cell = "";
   let inQuotes = false;
+  let closedQuote = false;
 
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
@@ -42,27 +43,35 @@ function parseCsv(text) {
         i++;
       } else if (char === '"') {
         inQuotes = false;
+        closedQuote = true;
       } else {
         cell += char;
       }
       continue;
     }
 
+    if (strict && closedQuote && char !== "," && char !== "\n" && char !== "\r") {
+      throw new Error("CSV inválido: caracteres después de una comilla de cierre.");
+    }
     if (char === '"') {
+      if (strict && cell !== "") throw new Error("CSV inválido: comilla dentro de un campo sin entrecomillar.");
       inQuotes = true;
     } else if (char === ',') {
       row.push(cell);
       cell = "";
+      closedQuote = false;
     } else if (char === '\n') {
       row.push(cell);
       rows.push(row);
       row = [];
       cell = "";
+      closedQuote = false;
     } else if (char !== '\r') {
       cell += char;
     }
   }
 
+  if (strict && inQuotes) throw new Error("CSV inválido: campo entrecomillado sin cerrar.");
   row.push(cell);
   if (row.some((value) => String(value).trim() !== "")) rows.push(row);
   return rows;

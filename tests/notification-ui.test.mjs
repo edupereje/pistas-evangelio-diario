@@ -3,13 +3,17 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
-const source = (await readFile(new URL('../public/app.js', import.meta.url), 'utf8')).replace(/init\(\);\s*$/, '');
+const source = (await readFile(new URL('../public/app.js', import.meta.url), 'utf8'))
+  .replace(/^import .*;\r?\n/gm, '')
+  .replace(/init\(\);\s*$/, '');
 function browser({ active = true, fetcher = async () => ({ ok: true }), subscription = { endpoint: 'https://push.example.invalid/device' } } = {}) {
   const data = new Map([['pistasNotificationState', JSON.stringify({ active, time: '08:00', permission: 'granted' })], ['pistasPrayerTime', '08:00']]);
   const calls = [];
   const alerts = [];
   const manager = { getSubscription: async () => subscription, subscribe: async () => { calls.push('new-subscription'); return subscription; } };
   const context = vm.createContext({
+    createStudyClient: () => ({ summary: async () => ({ status: 'missing' }), read: async () => ({ status: 'missing' }) }),
+    renderStudyMarkdown: () => '',
     window: { addEventListener() {}, Notification: {}, PushManager: {}, navigator: { standalone: true }, matchMedia: () => ({ matches: true }) },
     navigator: { serviceWorker: { ready: Promise.resolve({ pushManager: manager }) } },
     localStorage: { getItem: (key) => data.get(key) || null, setItem: (key, value) => data.set(key, value), removeItem: (key) => data.delete(key) },
