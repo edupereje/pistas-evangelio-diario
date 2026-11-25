@@ -41,6 +41,8 @@ El envío diario real lo ejecuta `netlify/functions/send-daily.mjs` cada 15 minu
 
 ## Estudios bíblicos
 
-El importador de producción ya acepta el perfil extendido y se probó desde la interfaz de Eduardo. Guarda A en el libro privado y exporta únicamente estudios aprobados para fechas que ya han llegado. La A del día 27 sigue privada con `publicar=no`; la exportación pública solo tiene la cabecera.
+El importador de producción acepta el perfil extendido. Guarda A en el libro privado y exporta únicamente estudios aprobados para fechas que ya han llegado. El 25 de noviembre de 2026 se comprobó una reparación real por fecha: 0 días añadidos, 1 actualizado y 30 estudios aprobados exportados. La lectura completa del estudio del día se verificó en la app.
 
-La app 8.20.0 de esta rama está preparada y probada localmente, pendiente de despliegue y configuración de `PISTAS_ESTUDIOS_CSV_URL`. Su servicio independiente y las condiciones de activación están documentados en [docs/ESTUDIOS_API.md](docs/ESTUDIOS_API.md). Se conserva el contrato de Pistas. Esta rama no integra la reparación de notificaciones.
+La app publicada sirve la versión 8.20.0. El diseño del servicio independiente está documentado en [docs/ESTUDIOS_API.md](docs/ESTUDIOS_API.md); su apartado de estado conserva la situación histórica del 27 de octubre. Se conserva el contrato de Pistas.
+
+Antes de entregar o importar cada JSON, ejecutar `npm run validar:entrega -- /ruta/entrega.json` y comprobar los enlaces nuevos. Después de importar, verificar la A publicada con `--app https://pistas-evangelio-diario.netlify.app` y abrirla en la interfaz. El procedimiento completo y los límites de cada comprobación están en [docs/VALIDACION_ENTREGAS.md](docs/VALIDACION_ENTREGAS.md). El validador reutiliza el contrato del importador y el lector real de la app; no publica ni modifica datos.
