@@ -38,6 +38,36 @@ function harness(fetcher) {
   return { app: context.testApp, root, context };
 }
 
+test("el encabezado compartido se forma desde la cita para los cuatro evangelistas", () => {
+  const { context } = harness(async () => new Response("", { status: 404 }));
+  for (const [cita, name] of [["Mt 5,1-12", "Mateo"], ["Mc 13,33-37", "Marcos"], ["Lc 21,12-19", "Lucas"], ["Jn 1,1-18", "Juan"]]) {
+    const item = { ...fixture, cita, evangelioTitulo: "Un lema aprobado" };
+    const text = context.formatFullText(item);
+    assert.ok(text.includes(`*Evangelio según san ${name} ${cita.slice(3)}*\n${item.evangelio}`));
+    assert.ok(!text.includes("*Un lema aprobado*"));
+    assert.ok(text.includes(item.pistas.trim()));
+    assert.equal(item.evangelioTitulo, "Un lema aprobado");
+  }
+});
+
+test("la app conserva el lema y M mientras WhatsApp recibe su encabezado propio", () => {
+  const { app, root, context } = harness(async () => new Response("", { status: 404 }));
+  const item = { ...fixture, cita: "Mc 13,33-37", evangelioTitulo: "Lo que os digo a vosotros lo digo a todos: ¡Velad!", notificacionTitulo: "¡Velad!" };
+  const before = JSON.stringify(item);
+  app.setPistas([item]);
+  app.openPista(item.fecha);
+  assert.ok(root.innerHTML.includes(`<h2 class="section-title">${item.evangelioTitulo}</h2>`));
+  assert.ok(root.innerHTML.includes('<div class="quote">“¡Velad!”</div>'));
+  assert.ok(context.formatFullText(item).includes("*Evangelio según san Marcos 13,33-37*"));
+  assert.equal(JSON.stringify(item), before);
+});
+
+test("las citas no reconocidas conservan el título aprobado al compartir", () => {
+  const { context } = harness(async () => new Response("", { status: 404 }));
+  const item = { ...fixture, cita: "", evangelioTitulo: "Encabezado aprobado del archivo" };
+  assert.ok(context.formatFullText(item).includes("*Encabezado aprobado del archivo*"));
+});
+
 test("Hoy y lectura piden solo disponibilidad; A se obtiene al abrir Profundiza", async () => {
   const requests = [];
   const { app, root } = harness(async (url) => {

@@ -1,12 +1,12 @@
-import { createStudyClient } from "./study-client.js?v=8.20.0";
-import { renderStudyMarkdown } from "./study-markdown.js?v=8.20.0";
+import { createStudyClient } from "./study-client.js?v=8.20.1";
+import { renderStudyMarkdown } from "./study-markdown.js?v=8.20.1";
 
 let pistas = [];
 let currentTab = "hoy";
 let selectedFecha = null;
 let deferredPrompt = null;
 
-const APP_VERSION = "8.20.0";
+const APP_VERSION = "8.20.1";
 const studyClient = createStudyClient((...args) => fetch(...args));
 const studySummaries = new Map();
 let studyView = null;
@@ -176,9 +176,17 @@ function cleanPistasTextForShare(pistas) {
   return text;
 }
 
+function gospelHeadingForShare(p) {
+  const citation = String(p.cita || "").trim();
+  const match = citation.match(/^(Mt|Mc|Lc|Jn)\.?\s*(\d[\s\S]*)$/i);
+  if (!match) return p.evangelioTitulo || citation;
+  const evangelist = { mt: "Mateo", mc: "Marcos", lc: "Lucas", jn: "Juan" }[match[1].toLowerCase()];
+  return `Evangelio según san ${evangelist} ${match[2].trim()}`;
+}
+
 function formatFullText(p) {
   const pistasText = cleanPistasTextForShare(p.pistas);
-  return `*${p.titulo}*\n*${p.celebracion}*\n\n(Recuerda:  \n${rememberText()})\n\n*${p.evangelioTitulo}*\n${p.evangelio}\n\n*Pistas:* ${pistasText}\n\n*${CLOSING_TEXT}*`;
+  return `*${p.titulo}*\n*${p.celebracion}*\n\n(Recuerda:  \n${rememberText()})\n\n*${gospelHeadingForShare(p)}*\n${p.evangelio}\n\n*Pistas:* ${pistasText}\n\n*${CLOSING_TEXT}*`;
 }
 
 function formatShareText(p, includeLink = false) {

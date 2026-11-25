@@ -1,4 +1,4 @@
-const APP_VERSION = "8.20.0";
+const APP_VERSION = "8.20.1";
 const CACHE_NAME = `pistas-v${APP_VERSION}`;
 const APP_SHELL = [
   "/",
